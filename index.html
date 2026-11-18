@@ -1,10 +1,12 @@
 <!DOCTYPE html>
 <!--
   R&D Studio Pro — 종합 기획 관리 워크스페이스
-  APP_VERSION: v2.0.0
+  APP_VERSION: v2.1.0
   배포: GitHub 웹에서 이 index.html 파일을 수동 업로드(덮어쓰기)
 
   [CHANGELOG]
+  v2.1.0 (2026-11-18) 사업공고도 수요조사와 같은 흐름: ① 공고 분석에서 공모 과제(RFP) 목록 자동 추출 → ② 대상 과제 선택·제안 과제명·추진 방향 + 양식 첨부로 작성.
+                      공정 분야·KPI·공정·컨소시엄은 '상세 기술 정보(선택)'로 유지
   v2.0.0 (2026-11-18) 구조 개편: 과제 = 사업공고 | 기술수요조사, 과제 안에서 ① 공고 요약·분석(수요조사 항목 분석) → ② 사업계획서(기술수요조사서) 작성
                       과제마다 문서 여러 개·작성 양식 첨부·재작성·이전 버전 복원·결과 직접 수정, 공고 요약 Word·PPT 내보내기,
                       수요조사 대상 항목 자동 추출·선택. 저장 키 rnd_projects_v3 (v1.x 데이터·Supabase 백업 자동 변환, 기존 키는 보관)
@@ -761,6 +763,9 @@
       line-height: 1.6;
       white-space: pre-wrap;
     }
+    .sub-details { border-top: 1px dashed var(--border-color); padding-top: 10px; display: flex; flex-direction: column; gap: 12px; }
+    .sub-details > summary { cursor: pointer; font-size: 12.5px; font-weight: 800; color: var(--text-sub); }
+    .sub-details:not([open]) { gap: 0; }
     .editor-actions { display: flex; gap: 6px; justify-content: flex-end; margin-top: 8px; white-space: normal; }
   </style>
 </head>
@@ -1184,12 +1189,18 @@
       notice: {
         label: '사업공고', tag: 'tag-notice', badge: '사업공고',
         stage1: '① 공고 요약·분석', stage2: '② 사업계획서 작성',
-        sourceLabel: '공고문', docLabel: '사업계획서', analysisLabel: '공고 요약·분석'
+        sourceLabel: '공고문', docLabel: '사업계획서', analysisLabel: '공고 요약·분석',
+        itemsLabel: '공모 대상 과제(RFP)', itemLabel: '대상 공모 과제(RFP)', themeLabel: '제안 과제명 (아이템명)',
+        itemsPlaceholder: '예: 자동차부품 | 대형 프리폼 형상 주조·단조 복합 기술 개발 | 과제당 20억, 3년',
+        themePlaceholder: '예: 전기차 섀시용 대형 알루미늄 프리폼 주조-단조 복합 성형 기술 개발'
       },
       demand: {
         label: '수요조사', tag: 'tag-demand', badge: '기술수요조사',
         stage1: '① 수요조사 항목 분석', stage2: '② 기술수요조사서 작성',
-        sourceLabel: '수요조사 공고문', docLabel: '기술수요조사서', analysisLabel: '수요조사 항목 분석'
+        sourceLabel: '수요조사 공고문', docLabel: '기술수요조사서', analysisLabel: '수요조사 항목 분석',
+        itemsLabel: '조사 대상 분야·항목', itemLabel: '대상 조사 항목', themeLabel: '제안 기술 테마 (아이템명)',
+        itemsPlaceholder: '예: 수송기기 | 경량 섀시 부품 | 알루미늄 단조 서스펜션 부품 경량화',
+        themePlaceholder: '예: 전기차 섀시용 고성능 알루미늄 서스펜션 부품 단조 기술'
       }
     };
     const MAX_VERSIONS = 10;
@@ -1414,7 +1425,7 @@
       for (const raw of lines) {
         const line = raw.trim();
         if (/^#{1,3}\s/.test(line)) {
-          inSection = /조사\s*대상|대상\s*분야|조사\s*분야|조사\s*항목/.test(line);
+          inSection = /조사\s*대상|대상\s*분야|조사\s*분야|조사\s*항목|공모\s*(대상\s*)?과제|RFP\s*목록|지원\s*대상\s*과제/.test(line);
           header = null;
           continue;
         }
@@ -1426,7 +1437,7 @@
           const idx = header.findIndex(h => re.test(h));
           return idx >= 0 ? idx : fallback;
         };
-        const fi = col(/분야/, 1), ii = col(/항목|기술명|품목/, 2), di = col(/내용|범위|설명/, 3);
+        const fi = col(/분야/, 1), ii = col(/항목|기술명|품목|과제명|RFP|과제/, 2), di = col(/내용|범위|설명|규모/, 3);
         const field = cells[fi] || '', item = cells[ii] || '', desc = cells[di] || '';
         if (!field && !item) continue;
         found.push([field, item, desc].filter((v, k) => k < 2 || v).join(' | '));
@@ -1647,12 +1658,11 @@
             <label>${info.sourceLabel} 텍스트 (또는 직접 붙여넣기) ${p.source.fileName ? `<span class="ref-badge">${escapeHtml(p.source.fileName)}</span>` : ''}</label>
             <textarea class="form-control" id="sourceInput" style="height:${p.kind === 'notice' ? 300 : 220}px;" placeholder="${p.kind === 'notice' ? '공고문 RFP 본문이나 지원자격, 지원내용 텍스트를 붙여넣으세요.' : '기술수요조사 공고문(조사 목적, 조사 분야, 제출 방법 등)을 붙여넣으세요.'}">${escapeHtml(p.source.raw)}</textarea>
           </div>
-          ${p.kind === 'demand' ? `
           <div class="form-group">
-            <label>조사 대상 분야·항목 (AI 분석 시 자동 추출 · 한 줄에 하나: 분야 | 항목 | 주요 내용)</label>
-            <textarea class="form-control" id="demandItemsInput" style="height:150px;" placeholder="예: 수송기기 | 경량 섀시 부품 | 알루미늄 단조 서스펜션 부품 경량화">${escapeHtml(p.demandItemsText)}</textarea>
-            <small style="color:#64748b; font-size:11px;">② 단계에서 기술수요조사서를 쓸 대상 항목으로 선택할 수 있습니다. 직접 추가·수정해도 됩니다.</small>
-          </div>` : ''}
+            <label>${info.itemsLabel} 목록 (AI 분석 시 자동 추출 · 한 줄에 하나: 분야 | ${p.kind === 'notice' ? '과제명' : '항목'} | 주요 내용)</label>
+            <textarea class="form-control" id="demandItemsInput" style="height:130px;" placeholder="${escapeHtml(info.itemsPlaceholder)}">${escapeHtml(p.demandItemsText)}</textarea>
+            <small style="color:#64748b; font-size:11px;">② 단계에서 ${info.docLabel}를 쓸 ${info.itemLabel}로 선택할 수 있습니다. 직접 추가·수정해도 됩니다.</small>
+          </div>
           <div class="ctx-note"><i class="fa-solid fa-circle-info"></i> 분석 결과는 오른쪽에서 Word·PPT로 내보낼 수 있고, ${info.stage2.replace(/^②\s*/, '② ')} 단계의 근거 자료로 자동 연결됩니다.</div>
         `;
         setupDropZone('fileDropZone', 'fileInput', 'sourceInput', (text, file) => {
@@ -1693,50 +1703,53 @@
           ? `<div class="ctx-note warn"><i class="fa-solid fa-triangle-exclamation"></i> ① 단계 AI 분석 전입니다. ${info.sourceLabel} 원문을 근거로 사용합니다.</div>`
           : `<div class="ctx-note warn"><i class="fa-solid fa-triangle-exclamation"></i> ① 단계에 ${info.sourceLabel}이 없습니다. 근거 없는 내용은 [확인 필요]로 표시됩니다.</div>`);
 
-      let inputsHtml = '';
+      // 공통: 대상 과제/항목 선택 · 제안 과제명(테마) · 추진 방향
+      const items = parseDemandItems(p.demandItemsText);
+      let itemOptions = `<option value="">(${info.itemLabel} 선택 안 함)</option>` + items.map(it =>
+        `<option value="${escapeHtml(it.line)}" ${it.line === doc.inputs.targetItem ? 'selected' : ''}>${escapeHtml(it.label)}</option>`).join('');
+      if (doc.inputs.targetItem && !items.some(it => it.line === doc.inputs.targetItem)) {
+        itemOptions += `<option value="${escapeHtml(doc.inputs.targetItem)}" selected>${escapeHtml(doc.inputs.targetItem)} (목록에 없음)</option>`;
+      }
+      let inputsHtml = `
+          <div class="form-group">
+            <label>${info.itemLabel} ${items.length ? `<span class="ref-badge">${items.length}개 중 선택</span>` : ''}</label>
+            <select class="form-control" id="demandTargetItem">${itemOptions}</select>
+            ${items.length ? '' : `<small style="color:#64748b; font-size:11px;">① 단계에서 [${p.kind === 'notice' ? 'AI 공고 요약·분석' : 'AI 조사 항목 분석'}]을 실행하면 ${info.itemsLabel} 목록이 여기에 나타납니다.</small>`}
+          </div>
+          <div class="form-group">
+            <label>${info.themeLabel}</label>
+            <input type="text" class="form-control" id="demandTheme" value="${escapeHtml(doc.inputs.theme)}" placeholder="${escapeHtml(info.themePlaceholder)}" />
+          </div>
+          <div class="form-group">
+            <label>추진 방향성 및 핵심 차별화 포인트 (1~2줄 요약)</label>
+            <textarea class="form-control" id="demandDirection" style="height:100px;" placeholder="예: 기존 주조 대비 피로수명 2배 향상, 미세조직 제어를 통한 내식성 및 경량화 달성">${escapeHtml(doc.inputs.direction)}</textarea>
+          </div>`;
       if (p.kind === 'notice') {
         const fieldKey = PROCESS_FIELDS[doc.inputs.processField] ? doc.inputs.processField : 'forging';
         const fieldOptions = Object.entries(PROCESS_FIELDS)
           .map(([k, f]) => `<option value="${k}" ${k === fieldKey ? 'selected' : ''}>${escapeHtml(f.label)}</option>`).join('');
-        inputsHtml = `
-          <div class="form-group">
-            <label>공정 분야 (양식 없이 작성할 때 2장 공정·결함 대책 기준)</label>
-            <select class="form-control" id="planProcessField">${fieldOptions}</select>
-          </div>
-          <div class="form-group">
-            <label>1. 핵심 정량 스펙 목표 (KPI)</label>
-            <input type="text" class="form-control" id="planSpec" value="${escapeHtml(doc.inputs.targetSpec)}" placeholder="예: 인장강도 410MPa, 항복강도 370MPa, 연신율 11%, 중량 20% 절감" />
-            <small style="color:#64748b; font-size:11px;">KS/ASTM 공인시험규격, 세계 최고 선진사 대비 격차를 AI가 자동 산출합니다.</small>
-          </div>
-          <div class="form-group">
-            <label>2. 제조 공정 흐름 및 파라미터 (스케일업 계획)</label>
-            <textarea class="form-control" id="planProcess" style="height:100px;" placeholder="${escapeHtml(PROCESS_FIELDS[fieldKey].placeholder)}">${escapeHtml(doc.inputs.processGuide)}</textarea>
-          </div>
-          <div class="form-group">
-            <label>3. 산학연 역할 분담 및 수요처 양산 로드맵</label>
-            <textarea class="form-control" id="planConsortium" style="height:85px;" placeholder="예: 주관-CTR 에코포징(단조양산), 참여-한국재료연구원(특성/피로 신뢰성 검증), 수요처-완성차 ISIR/PPAP 승인">${escapeHtml(doc.inputs.consortium)}</textarea>
-          </div>`;
-      } else {
-        const items = parseDemandItems(p.demandItemsText);
-        let itemOptions = '<option value="">(대상 항목 선택 안 함)</option>' + items.map(it =>
-          `<option value="${escapeHtml(it.line)}" ${it.line === doc.inputs.targetItem ? 'selected' : ''}>${escapeHtml(it.label)}</option>`).join('');
-        if (doc.inputs.targetItem && !items.some(it => it.line === doc.inputs.targetItem)) {
-          itemOptions += `<option value="${escapeHtml(doc.inputs.targetItem)}" selected>${escapeHtml(doc.inputs.targetItem)} (목록에 없음)</option>`;
-        }
-        inputsHtml = `
-          <div class="form-group">
-            <label>대상 조사 항목 ${items.length ? `<span class="ref-badge">${items.length}개 중 선택</span>` : ''}</label>
-            <select class="form-control" id="demandTargetItem">${itemOptions}</select>
-            ${items.length ? '' : '<small style="color:#64748b; font-size:11px;">① 단계에서 [AI 조사 항목 분석]을 실행하면 조사 대상 항목이 여기에 나타납니다.</small>'}
-          </div>
-          <div class="form-group">
-            <label>제안 기술 테마 (아이템명)</label>
-            <input type="text" class="form-control" id="demandTheme" value="${escapeHtml(doc.inputs.theme)}" placeholder="예: 전기차 섀시용 고성능 알루미늄 서스펜션 부품 단조 기술" />
-          </div>
-          <div class="form-group">
-            <label>추진 방향성 및 핵심 차별화 포인트 (1~2줄 요약)</label>
-            <textarea class="form-control" id="demandDirection" style="height:110px;" placeholder="예: 기존 주조 대비 피로수명 2배 향상, 미세조직 제어를 통한 내식성 및 경량화 달성">${escapeHtml(doc.inputs.direction)}</textarea>
-          </div>`;
+        const techFilled = [doc.inputs.targetSpec, doc.inputs.processGuide, doc.inputs.consortium].some(v => String(v || '').trim());
+        inputsHtml += `
+          <details class="sub-details" ${techFilled ? 'open' : ''}>
+            <summary>상세 기술 정보 (선택) — 공정 분야 · KPI · 공정 · 컨소시엄 ${techFilled ? '<span class="ref-badge">입력됨</span>' : ''}</summary>
+            <div class="form-group">
+              <label>공정 분야 (양식 없이 작성할 때 2장 공정·결함 대책 기준)</label>
+              <select class="form-control" id="planProcessField">${fieldOptions}</select>
+            </div>
+            <div class="form-group">
+              <label>1. 핵심 정량 스펙 목표 (KPI)</label>
+              <input type="text" class="form-control" id="planSpec" value="${escapeHtml(doc.inputs.targetSpec)}" placeholder="예: 인장강도 410MPa, 항복강도 370MPa, 연신율 11%, 중량 20% 절감" />
+              <small style="color:#64748b; font-size:11px;">KS/ASTM 공인시험규격, 세계 최고 선진사 대비 격차를 AI가 자동 산출합니다.</small>
+            </div>
+            <div class="form-group">
+              <label>2. 제조 공정 흐름 및 파라미터 (스케일업 계획)</label>
+              <textarea class="form-control" id="planProcess" style="height:100px;" placeholder="${escapeHtml(PROCESS_FIELDS[fieldKey].placeholder)}">${escapeHtml(doc.inputs.processGuide)}</textarea>
+            </div>
+            <div class="form-group">
+              <label>3. 산학연 역할 분담 및 수요처 양산 로드맵</label>
+              <textarea class="form-control" id="planConsortium" style="height:85px;" placeholder="예: 주관-CTR 에코포징(단조양산), 참여-한국재료연구원(특성/피로 신뢰성 검증), 수요처-완성차 ISIR/PPAP 승인">${escapeHtml(doc.inputs.consortium)}</textarea>
+            </div>
+          </details>`;
       }
 
       pane.innerHTML = docBar + ctxNote + `
@@ -1922,11 +1935,14 @@
 [분석 필수 항목]
 1. 공고 핵심 요약 (의사결정자가 1분 안에 읽을 수 있도록 5줄 이내)
 2. 공고 개요 및 지원 규모 (지원 금액, 과제 기간, 주관자격 요건)
-3. 핵심 RFP 기술 목표 및 주요 개발 범위
-4. 필수 신청 자격 및 사전 탈락(사전지원제외) 조건
-5. 우대 가점(가점 사항) 및 감점 리스크 요인
-6. 접수 일정 및 제출 서류 (접수 기간, 제출 방법, 제출 서류 목록)
-7. 사업계획서 대응 전략 및 기획 시 착안사항
+3. 공모 대상 과제(RFP) 목록
+   - 반드시 아래 열을 갖춘 마크다운 표로 작성: | 번호 | 분야 | 공모 과제명(RFP) | 주요 내용·지원 규모 |
+   - 공고문에 명시된 공모 과제(RFP·지원 분야)만 빠짐없이 나열하고, 공고에 없는 과제는 만들지 말 것. 단일 과제 공고면 1행으로 작성.
+4. 핵심 RFP 기술 목표 및 주요 개발 범위
+5. 필수 신청 자격 및 사전 탈락(사전지원제외) 조건
+6. 우대 가점(가점 사항) 및 감점 리스크 요인
+7. 접수 일정 및 제출 서류 (접수 기간, 제출 방법, 제출 서류 목록)
+8. 사업계획서 대응 전략 및 기획 시 착안사항
 
 공고문 본문:
 ${raw}
@@ -1964,20 +1980,23 @@ ${raw}
       const extra = (i.extra || '').trim();
       const item = parseDemandItems(i.targetItem)[0];
 
+      const itemText = item ? `${item.label}${item.desc ? ` (${item.desc})` : ''}` : '';
+      const techFilled = [i.targetSpec, i.processGuide, i.consortium].some(v => String(v || '').trim());
       const infoLines = (p.kind === 'notice'
         ? [
-            ['공정 분야', (PROCESS_FIELDS[i.processField] || PROCESS_FIELDS.forging).label],
+            ['대상 공모 과제(RFP)', itemText], ['제안 과제명', i.theme], ['추진 방향성', i.direction],
+            ['공정 분야', techFilled ? (PROCESS_FIELDS[i.processField] || PROCESS_FIELDS.forging).label : ''],
             ['목표 스펙', i.targetSpec], ['제조 공정 및 가이드', i.processGuide], ['산학연 컨소시엄 및 수요처', i.consortium]
           ]
         : [
-            ['대상 조사 항목', item ? `${item.label}${item.desc ? ` (${item.desc})` : ''}` : ''],
+            ['대상 조사 항목', itemText],
             ['제안 기술 테마', i.theme], ['추진 방향성', i.direction]
           ])
         .filter(([, v]) => String(v || '').trim())
         .map(([k, v]) => `- ${k}: ${v}`).join('\n');
 
       const userInputs = p.kind === 'notice'
-        ? [i.targetSpec, i.processGuide, i.consortium, extra].some(v => String(v || '').trim())
+        ? [i.targetItem, i.theme, i.direction, i.targetSpec, i.processGuide, i.consortium, extra].some(v => String(v || '').trim())
         : [i.targetItem, i.theme, i.direction, extra].some(v => String(v || '').trim());
       if (!ctx && !userInputs) {
         const ok = window.confirm(`근거 자료(① 단계 ${info.sourceLabel})와 작성 정보가 모두 비어 있습니다.\n이대로 작성하면 대부분 [확인 필요]로 표시됩니다. 계속할까요?`);
@@ -2019,7 +2038,7 @@ ${formRaw}
         const refBlock = ctx ? `
 [참조: 대상 공고 분석 결과]
 ${ctx}
-- 위 공고의 RFP 기술 목표, 지원 규모·기간, 신청 요건, 평가 착안사항에 정확히 부합하도록 작성할 것.
+- 위 공고의 RFP 기술 목표, 지원 규모·기간, 신청 요건, 평가 착안사항에 정확히 부합하도록 작성할 것.${itemText ? '\n- 특히 대상 공모 과제(RFP)의 목표·범위에 맞춰 작성할 것.' : ''}
 ` : '';
         return `
 너는 대한민국 산업통상자원부/중소벤처기업부 산하 R&D 대면평가 총괄 분과위원장이다.
@@ -2028,6 +2047,9 @@ ${ctx}
 각 항목은 '## 번호. 항목명' 제목으로 시작하고 코드블록(\`\`\`)은 쓰지 말 것.
 
 [연구자 제공 정보]
+- 대상 공모 과제(RFP): ${itemText || '(지정 없음)'}
+- 제안 과제명: ${i.theme}
+- 추진 방향성: ${i.direction}
 - 목표 스펙: ${i.targetSpec}
 - 제조 공정 및 가이드: ${i.processGuide}
 - 산학연 컨소시엄 및 수요처: ${i.consortium}
@@ -2159,11 +2181,13 @@ ${ctx}
       target.result = res.text;
       if (target.updatedAt !== undefined) target.updatedAt = Date.now();
       let msg = `생성 완료 (${res.model}) — 이전 결과는 버전 목록에 보관됩니다.`;
-      if (stage === 'analysis' && p.kind === 'demand') {
+      if (stage === 'analysis') {
         const added = mergeDemandItems(p, res.text);
-        msg = added
-          ? `조사 대상 항목 ${added}개를 추출했습니다. ② 단계에서 항목을 골라 기술수요조사서를 작성하세요.`
-          : `생성 완료 (${res.model}) — 조사 대상 항목 표를 찾지 못했습니다. 항목을 직접 입력해주세요.`;
+        if (added) {
+          msg = `${info.itemsLabel} ${added}개를 추출했습니다. ② 단계에서 골라 ${info.docLabel}를 작성하세요.`;
+        } else if (!parseDemandItems(p.demandItemsText).length) {
+          msg = `생성 완료 (${res.model}) — ${info.itemsLabel} 표를 찾지 못했습니다. 목록을 직접 입력해주세요.`;
+        }
       }
       resetOutputState();
       saveData();
@@ -2958,9 +2982,9 @@ ${ctx}
             target.result = next;
             if (target.updatedAt !== undefined) target.updatedAt = Date.now();
             saveData();
-            if (getStage(p) === 'analysis' && p.kind === 'demand') {
+            if (getStage(p) === 'analysis') {
               const added = mergeDemandItems(p, next);
-              if (added) showToast(`수정 내용에서 조사 항목 ${added}개를 추가로 반영했습니다.`);
+              if (added) showToast(`수정 내용에서 ${KIND_INFO[p.kind].itemsLabel} ${added}개를 추가로 반영했습니다.`);
             }
           }
           editingResult = false;
