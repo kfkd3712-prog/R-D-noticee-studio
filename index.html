@@ -1,10 +1,14 @@
 <!DOCTYPE html>
 <!--
   R&D Studio Pro — 종합 기획 관리 워크스페이스
-  APP_VERSION: v2.5.0
+  APP_VERSION: v2.5.1
   배포: GitHub 웹에서 이 index.html 파일을 수동 업로드(덮어쓰기)
 
   [CHANGELOG]
+  v2.5.1 (2026-11-23) 기술수요조사서(산업기술 R&D 통합 수요조사) 양식 대응: 'ㅇ / - / * + ※ 작성요령'이 한 칸에 든 본문 칸 작성(줄 모양 유지·안내문 삭제),
+                      '대기업( ), 중소기업( )' 괄호 선택 칸(예시 체크 표시 지우고 고른 것만 ○), 선택 표시 칸(혁신제품형/원천기술형),
+                      '(    )년' 괄호 빈칸, '(예) …'·'OOOO' 예시 칸을 실제 값으로 교체, 행 이름과 떨어진 빈 칸·용어 안내 표 제외,
+                      작성 자리를 못 찾으면 공고문을 첨부했는지 안내
   v2.5.0 (2026-11-20) 기관 기술 프로필: 사이드바 [기관 프로필]에 우리 회사의 공정·소재·제품·고객사·장비·인증·실적·인력·강점을 한 번 저장
                       → ② 문서 작성·한글 양식 채우기에 근거로 자동 반영(문서별 '기관 프로필 반영' 체크, 기본 켜짐).
                       프로필은 localStorage rnd_org_profile_v1, Supabase Push/Pull 시 'org_profile' 행으로 함께 백업·복원
@@ -2813,6 +2817,50 @@ ${ctx}
     function hpChildren(el, local) {
       return Array.from(el.childNodes).filter(n => n.nodeType === 1 && n.localName === local);
     }
+    // 선택 상자: '[ ]' '( )' (안에 비었거나 체크 표시 한 글자) — 이름은 상자 바로 앞 글자
+    const BOX_RE = /\[([^\[\]\n]{0,3})\]|\(([^()\n]{0,3})\)/g;
+    const BOX_INNER_RE = /^[\s\uf0fc\uf0fe\uf06e\uf0a8✓✔√○●◯◎VvOo]*$/;
+    const MARK_GLYPH_RE = /^[\s\uf0fc\uf0fe\uf06e\uf0a8✓✔√○●◯◎]*$/;
+    // '( )단계', '(    )년' 처럼 단위가 붙은 괄호는 선택 상자가 아니라 값 빈칸
+    const UNIT_AFTER_RE = /^\s*(단계|년|개월|월|일|명|건|%|원|천원|백만원|억원|개|회|점|차년도)/;
+    const PAREN_BLANK_RE = /\(\s*\)(?=\s*(단계|년|개월|월|일|명|건|%|원|천원|백만원|억원|개|회|점|차년도))|\(\s{2,}\)/g;
+    function isUnitBlank(text, m) {
+      if (m[0][0] !== '(') return false;
+      return /^\s{2,}$/.test(m[2] || '') || UNIT_AFTER_RE.test(text.slice(m.index + m[0].length));
+    }
+    function parseBoxes(text) {
+      const out = []; let m, last = 0;
+      BOX_RE.lastIndex = 0;
+      while ((m = BOX_RE.exec(text))) {
+        const inner = m[1] !== undefined ? m[1] : m[2];
+        if (!BOX_INNER_RE.test(inner) || isUnitBlank(text, m)) continue;
+        const name = text.slice(last, m.index).replace(/^[\s,，·/]+/, '').replace(/\s+/g, ' ').trim();
+        out.push({ name, inner, square: m[0][0] === '[' });
+        last = m.index + m[0].length;
+      }
+      return out;
+    }
+    // 상자 순서(chosen = 고른 순번 집합)대로 ○ 표시, 나머지는 비움 — 상자가 여러 글자 조각(t)에 걸쳐 있어도 처리
+    function setBoxes(el, chosen) {
+      const ts = Array.from(el.getElementsByTagNameNS('*', 't'));
+      const chars = ts.map(t => Array.from(t.textContent));
+      const map = []; let full = '';
+      chars.forEach((cs, ti) => cs.forEach((ch, k) => { map.push([ti, k]); full += ch; }));
+      // 서로게이트 없는 BMP 기준 (Array.from 길이 = 문자 수)
+      let m, idx = -1;
+      BOX_RE.lastIndex = 0;
+      while ((m = BOX_RE.exec(full))) {
+        const inner = m[1] !== undefined ? m[1] : m[2];
+        if (!BOX_INNER_RE.test(inner) || isUnitBlank(full, m)) continue;
+        idx++;
+        const open = m.index, close = m.index + m[0].length - 1;
+        for (let q = open + 1; q < close; q++) { const [ti, k] = map[q]; chars[ti][k] = ''; }
+        const [oti, ok] = map[open];
+        chars[oti][ok] = m[0][0] + (chosen.has(idx) ? '○' : ' ');
+      }
+      ts.forEach((t, ti) => { t.textContent = chars[ti].join(''); });
+    }
+
     function hpTextOf(el) {
       return Array.from(el.getElementsByTagNameNS('*', 't')).map(t => t.textContent).join('');
     }
@@ -2952,7 +3000,8 @@ ${ctx}
           const counts = rows.slice(Math.max(0, headerRow + 1)).map(r => hpChildren(r, 'tc').length);
           const irregular = new Set(counts).size > 1;
           // 별첨(연구실운영비 등)·서명란 표도 사용자가 직접 기재
-          const admin = ADMIN_TABLE_RE.test(heading) || /운영비|별첨|^\s*(연구개발기관|연구책임자)\s*[:：]/.test(firstText);
+          const admin = ADMIN_TABLE_RE.test(heading) || /운영비|별첨|^\s*(연구개발기관|연구책임자)\s*[:：]/.test(firstText) ||
+            /용어\s*(안내|설명|정의)|각주\s*설명/.test(heading) || /^\s*(연번|번호)\s*용어/.test(firstText);
           tables.set(node, { no: ++tableCounter.n, heading, header, headerRow, rowCount: rows.length, instruction: instruction || admin, irregular, cellPos, numSeen: 0 });
           // 작성 요령 상자는 제목 아래 내용으로 치지 않음 (제목만 있는 자리 찾기용)
           if (prevTop && !instruction) prevTop.slotted = true;
@@ -2964,23 +3013,41 @@ ${ctx}
           // 안에 표가 든 칸(앞표지 틀 등)은 그 안쪽 표를 계속 살핌
           if (node.getElementsByTagNameNS('*', 'tbl').length > 0) { Array.from(node.childNodes).forEach(visit); return; }
           const text = hpTextOf(node).trim();
-          const placeholderOnly = /^[○◦•·ㅇ\-–—\s.]+$/.test(text);
           const sub = hpChildren(node, 'subList')[0];
           const paraTexts = sub ? hpChildren(sub, 'p').map(pp => hpTextOf(pp).trim()).filter(Boolean) : [];
           const paraCount = paraTexts.length;
-          const guidanceCell = isGuidanceText(text) && paraCount <= 2;
-          // [  ] 선택 칸 (아직 아무것도 표시되지 않은 보기 2개 이상)
-          const boxCount = (text.match(/\[\s*\]/g) || []).length;
-          const checkCell = boxCount >= 2 && !/\[\s*[○O0●◎√✓Vv]\s*\]/.test(text);
+          // 'ㅇ / - / *' 줄 머리만 있고 그 뒤에 ※ 작성요령이 붙은 본문 칸 (수요조사서·계획서 표 안 본문)
+          const MARK_ONLY = /^[ㅇo○◦\-\*·]\s*(\([^)]{1,30}\))?\s*$/;
+          let skelCell = null;
+          if (paraCount && /^[ㅇo○◦]/.test(paraTexts[0]) && MARK_ONLY.test(paraTexts[0])) {
+            const gi = paraTexts.findIndex(t => /^※/.test(t));
+            const head = gi < 0 ? paraTexts : paraTexts.slice(0, gi);
+            const wide = +(hpChildren(node, 'cellSz')[0]?.getAttribute('width') || 0) > 20000;
+            if (head.every(t => MARK_ONLY.test(t)) && (head.length >= 2 || gi >= 0 || wide)) {
+              skelCell = { marks: head, guide: gi < 0 ? '' : paraTexts.slice(gi).join(' ').slice(0, 300) };
+            }
+          }
+          const placeholderOnly = !skelCell && /^[○◦•·ㅇ\-–—\s.]+$/.test(text);
+          const guidanceCell = !skelCell && isGuidanceText(text) && paraCount <= 2;
+          // 선택 칸: '[ ]' '( )' 보기 2개 이상 (양식의 예시 체크 표시는 지우고 새로 고름, ○로 이미 고른 칸은 그대로)
+          const boxes = parseBoxes(text);
+          const checkCell = boxes.length >= 2 && boxes.every(b => b.name) && !boxes.some(b => /[○●◎VvOo✓✔√]/.test(b.inner));
+          // 체크 표시 글자만 있는 칸 (혁신제품형 □ / 원천기술형 □ 같은 선택 표시 칸)
+          const markOnly = !!text && MARK_GLYPH_RE.test(text) && !/[○●◎]/.test(text);
+          // '(    )년', '(    )백만원' 같은 괄호 빈칸
+          const blankCount = (text.match(PAREN_BLANK_RE) || []).length;
+          const blankParen = !checkCell && blankCount >= 1 && blankCount <= 4 && text.length <= 60;
           // 'o 사업화 형태 :', 'o' 처럼 줄 머리만 있는 형식 칸
           const PROMPT_LINE = /^[o○ㅇ•·\-]\s*([^:：]{1,30}[:：])?\s*$/;
           const promptCell = !placeholderOnly && paraCount > 0 && paraTexts.every(t => PROMPT_LINE.test(t));
           // 번호만 있는 항목 칸 (1. / 2. / N.) · 예시) 행 이름 칸
           const numMatch = text.match(/^(\d+|N)\s*[.)]$/);
-          const exampleCell = /^예시\s*\)/.test(text) && paraCount <= 2;
+          const EXAMPLE_RE = /^(예시\s*\)|\(예\)|예\)|O{4,})/;
+          const exampleCell = EXAMPLE_RE.test(text) && paraCount <= 3;
           // '기업명(중견기업, … 택1)' 처럼 이름 자리 표시만 있는 칸
           const namePlaceholder = /^(기업명|과제명)\s*(\(.*\))?$/.test(text.replace(/\s+/g, ' '));
-          if (text && !placeholderOnly && !guidanceCell && !checkCell && !promptCell && !numMatch && !exampleCell && !namePlaceholder) return;
+          if (text && !placeholderOnly && !guidanceCell && !checkCell && !promptCell && !numMatch && !exampleCell && !namePlaceholder &&
+              !skelCell && !markOnly && !blankParen) return;
 
           const addr = hpChildren(node, 'cellAddr')[0];
           const r = +(addr?.getAttribute('rowAddr') || 0), c = +(addr?.getAttribute('colAddr') || 0);
@@ -2993,7 +3060,7 @@ ${ctx}
             const oa = hpChildren(o, 'cellAddr')[0], os = hpChildren(o, 'cellSpan')[0];
             const oc = +(oa?.getAttribute('colAddr') || 0), ocs = +(os?.getAttribute('colSpan') || 1);
             const ot = hpTextOf(o).trim();
-            if (oc < c && ot && !isGuidanceText(ot) && !/^\[\s*\]/.test(ot)) { rowLabel = ot; rowLabelEnd = oc + ocs; }
+            if (oc < c && ot && !isGuidanceText(ot) && !/^\[\s*\]/.test(ot) && !/^(예시\s*\)|\(예\)|예\)|O{4,})/.test(ot) && !MARK_GLYPH_RE.test(ot)) { rowLabel = ot; rowLabelEnd = oc + ocs; }
           });
           // 바로 위 같은 폭의 이름 상자 (조직도·도식 표)
           // 위쪽 같은 폭의 이름 상자 (조직도·도식 표, 표 중간의 머리줄) — 사이 칸이 모두 비어 있을 때만
@@ -3016,14 +3083,38 @@ ${ctx}
             rowLabel: rowLabel.slice(0, 40), colHeader: colHeader.slice(0, 40), aboveLabel: rowLabel || colHeader ? '' : aboveLabel.slice(0, 40) };
 
           if (checkCell) {
-            const options = [];
-            text.replace(/([^\[\]]*?)\s*\[\s*\]/g, (m, name) => { options.push(name.replace(/\s+/g, ' ').trim()); return m; });
-            if (options.some(o => !o)) return;   // '[ ] 신청용' 처럼 상자가 앞에 오는 형식은 제외
-            push(Object.assign(base, { kind: 'check', options, label: label.slice(0, 40) }));
+            push(Object.assign(base, { kind: 'check', options: boxes.map(b => b.name), label: label.slice(0, 40) }));
             return;
           }
+          if (skelCell) {
+            push(Object.assign(base, { kind: 'cell', skel: skelCell.marks, guidance: skelCell.guide, long: true }));
+            return;
+          }
+          if (blankParen) {
+            push(Object.assign(base, { kind: 'cell', blankParen: text, guidance: '', long: false }));
+            return;
+          }
+          // 선택 표시 칸: 왼쪽에 바로 붙은 보기 이름이 있고, 같은 줄에 이런 칸이 2개 이상일 때
+          if (!text || markOnly) {
+            const markCellsInRow = hpChildren(tr, 'tc').filter(o => { const t = hpTextOf(o).trim(); return !t || MARK_GLYPH_RE.test(t); }).length;
+            if (rowLabel && rowLabelEnd === c && markCellsInRow >= 2 && (markOnly || hpChildren(tr, 'tc').some(o => o !== node && hpTextOf(o).trim() && MARK_GLYPH_RE.test(hpTextOf(o).trim())))) {
+              push(Object.assign(base, { kind: 'mark', label: rowLabel.slice(0, 40) }));
+              return;
+            }
+            if (markOnly) return;
+          }
+          // 행 이름과 떨어진 빈 칸은 '같은 행 몇 번째 칸'인지 알려 줌 (핵심어 5칸 등)
+          if (rowLabel && rowLabelEnd !== c && !colHeader) {
+            info.rowOrd = info.rowOrd || {};
+            const key = `${r}|${rowLabel}`;
+            info.rowOrd[key] = (info.rowOrd[key] || 1) + 1;
+            base.ord = info.rowOrd[key];
+          } else if (rowLabel && rowLabelEnd === c) {
+            info.rowOrd = info.rowOrd || {};
+            info.rowOrd[`${r}|${rowLabel}`] = 1;
+          }
           if (numMatch) {
-            if (!colHeader || /^(순번|번호|No\.?)$/i.test(colHeader)) return;
+            if (!colHeader || /^(순번|연번|번호|No\.?)$/i.test(colHeader)) return;
             info.numSeen = (info.numSeen || 0) + 1;
             push(Object.assign(base, { kind: 'cell', numLabel: numMatch[1] === 'N' ? String(info.numSeen) : numMatch[1], numSep: text.includes(')') ? ')' : '.', guidance: '', long: false }));
             return;
@@ -3055,6 +3146,8 @@ ${ctx}
         if (ln === 'p' && isTopLevelPara(node)) {
           const text = hpTextOf(node).trim();
           const hasCtrl = node.getElementsByTagNameNS('*', 'secPr').length || node.getElementsByTagNameNS('*', 'tbl').length;
+          // 구역 첫 줄(구역 설정이 든 문단)의 제목도 제목으로 기억 (예: '4. 지원 필요성 및 기대효과', '□ 용어 안내')
+          if (hasCtrl && !node.getElementsByTagNameNS('*', 'tbl').length && text && text.length <= 70 && looksLikeHeading(text)) heading = text.slice(0, 80);
           if (!hasCtrl) {
             const lvl = skeletonLevel(text);
             if (lvl >= 0) {
@@ -3134,13 +3227,23 @@ ${ctx}
       if (s.kind === 'para') pos = '본문 작성 자리';
       else {
         const lab = s.rowLabel || s.colHeader
-          ? `${s.rowLabel ? `'${s.rowLabel}' 행` : ''}${s.rowLabel && s.colHeader ? ' × ' : ''}${s.colHeader ? `'${s.colHeader}' 열` : ''}`
+          ? `${s.rowLabel ? `'${s.rowLabel}' 행${s.ord ? ` ${s.ord}번째 칸` : ''}` : ''}${s.rowLabel && s.colHeader ? ' × ' : ''}${s.colHeader ? `'${s.colHeader}' 열` : ''}`
           : s.aboveLabel ? `'${s.aboveLabel}' 상자 아래 칸` : '내용 칸';
         pos = `표${s.table} ${s.row !== undefined ? `${s.row + 1}행 ` : ''}${lab}`;
       }
+      if (s.kind === 'mark') return `${s.id} | ${where} ${pos} 선택 표시 칸('${s.label}') | 해당하면 '○', 아니면 키 생략`;
+      if (s.skel) {
+        const heads = s.skel.map(t => t.replace(/\s+/g, ' ').trim());
+        const subs = heads.filter(t => /\(/.test(t));
+        return `${s.id} | ${where} ${pos} | 긴 칸(각 줄을 '${heads[0][0]} '(항목)·'- '(세부)·'* '(부연)로 시작${subs.length ? `; 소제목 줄 그대로 사용: ${subs.join(' / ')}` : ''})${s.guidance ? ` | 작성요령: ${s.guidance}` : ''}`;
+      }
+      if (s.blankParen) {
+        const n = (s.blankParen.match(PAREN_BLANK_RE) || []).length;
+        return `${s.id} | ${where} ${pos} 괄호 빈칸('${s.blankParen.replace(/\s+/g, ' ')}') | 짧은 칸(괄호 안에 들어갈 값만${n > 1 ? `, ${n}개를 순서대로 ' / '로 구분` : ''}, 예: 숫자)`;
+      }
       if (s.kind === 'check') return `${s.id} | ${where} ${pos} 선택 칸 | 보기: ${s.options.join(' / ')} (해당하는 보기 이름만 쉼표로)`;
       if (s.numLabel) return `${s.id} | ${where} ${pos} '${s.numLabel}${s.numSep}' 번호 칸 | 짧은 칸(번호 뒤에 붙일 항목 이름만)`;
-      if (s.example) return `${s.id} | ${where} ${pos} 예시 행 이름 칸('${s.example}') | 짧은 칸(실제 지표 이름으로 바꿈)`;
+      if (s.example) return `${s.id} | ${where} ${pos} 예시 칸('${s.example.replace(/\s+/g, ' ')}') | 짧은 칸(예시를 지우고 실제 값으로 바꿈)`;
       if (s.prompts) {
         const fmt = s.prompts.map(t => /[:：]\s*$/.test(t) ? `'${t.trim()} 값'` : `'${t.trim()} 내용'`).join(' / ');
         return `${s.id} | ${where} ${pos} 형식 칸 | 줄 형식 그대로 ${s.prompts.length}줄: ${fmt}`;
@@ -3252,6 +3355,20 @@ ${ctx}
       });
     }
 
+    // 선택 표시 칸 비우기/표시 (양식 예시 체크 글자 지움)
+    function clearMark(el, on) {
+      const ts = Array.from(el.getElementsByTagNameNS('*', 't'));
+      ts.forEach(t => { if (MARK_GLYPH_RE.test(t.textContent)) t.textContent = ''; });
+      if (on) {
+        const t = ts[0];
+        if (t) t.textContent = '○';
+        else {
+          const run = el.getElementsByTagNameNS('*', 'run')[0];
+          if (run) { const nt = run.ownerDocument.createElementNS(run.namespaceURI, (run.prefix ? run.prefix + ':' : '') + 't'); nt.textContent = '○'; run.appendChild(nt); }
+        }
+      }
+    }
+
     function fillSlot(slot, value, ctx) {
       const lines = slotLines(fixText(value));
       if (!lines.length) return false;
@@ -3264,11 +3381,15 @@ ${ctx}
         const chosen = new Set();
         slot.options.forEach((o, i) => { const k = norm(o); if (picks.some(pk => pk === k || (pk.length >= 2 && (k.includes(pk) || pk.includes(k))))) chosen.add(i); });
         if (!chosen.size) return false;
-        let k = -1;
-        Array.from(slot.el.getElementsByTagNameNS('*', 't')).forEach(t => {
-          t.textContent = t.textContent.replace(/\[\s*\]/g, m => { k++; return chosen.has(k) ? '[○]' : m; });
-        });
+        setBoxes(slot.el, chosen);
         return true;
+      }
+
+      // 선택 표시 칸: '○' 이면 표시, 아니면 비움
+      if (slot.kind === 'mark') {
+        const yes = /^(○|●|O|o|V|v|✓|✔|해당|예|선택|yes|y)(\s|$|[,.(])/i.test(lines[0].trim()) && !/해당\s*(없|무|안)/.test(lines[0]);
+        clearMark(slot.el, yes);
+        return yes;
       }
 
       // 콜론으로 끝나는 줄: 마지막 글자 뒤에 값 붙이기
@@ -3314,6 +3435,43 @@ ${ctx}
         return true;
       }
 
+      if (slot.kind === 'cell' && slot.blankParen) {
+        const vals = lines.join(' / ').split(/\s*\/\s*/).map(v => v.replace(/^\(\s*|\s*\)$/g, '').trim());
+        let k = 0;
+        Array.from(slot.el.getElementsByTagNameNS('*', 't')).forEach(t => {
+          t.textContent = t.textContent.replace(PAREN_BLANK_RE, m => (k < vals.length && vals[k] !== '' && vals[k] !== '-') ? `( ${vals[k++]} )` : (k++, m));
+        });
+        return k > 0;
+      }
+      if (slot.kind === 'cell' && slot.skel) {
+        const sub = hpChildren(slot.el, 'subList')[0];
+        if (!sub) return false;
+        const paras = hpChildren(sub, 'p');
+        const tplFor = (re) => paras.find(pp => re.test(hpTextOf(pp).trim()));
+        const T = {
+          top: tplFor(/^[ㅇo○◦]/) || paras[0],
+          dash: tplFor(/^-/) || tplFor(/^[ㅇo○◦]/) || paras[0],
+          star: tplFor(/^\*/) || tplFor(/^-/) || paras[0]
+        };
+        const topMark = (hpTextOf(T.top).trim()[0]) || 'ㅇ';
+        const prefixOf = (pp, mk) => { const raw = hpTextOf(pp); const m = raw.match(/^(\s*)\S/); return `${m ? m[1] : ''}${mk} `; };
+        // '* 부연' 줄 머리를 살리기 위해 slotLines의 '*→•' 변환 전 원문 줄 사용
+        const rawLines = String(fixText(value)).replace(/\r/g, '').split('\n')
+          .map(l => l.replace(/\*\*(.+?)\*\*/g, '$1').replace(/^\s*#{1,6}\s+/, '').trimEnd())
+          .filter(l => l.trim() && !/^\s*```/.test(l));
+        const out = rawLines.map(l => {
+          const t = l.trim();
+          let m;
+          if ((m = t.match(/^[ㅇo○◦●•]\s*(.*)$/)) && !/^o[a-z]/i.test(t)) return { tpl: T.top, text: prefixOf(T.top, topMark) + m[1] };
+          if ((m = t.match(/^[-–]\s*(.*)$/))) return { tpl: T.dash, text: prefixOf(T.dash, '-') + m[1] };
+          if ((m = t.match(/^[*※]\s*(.*)$/))) return { tpl: T.star, text: prefixOf(T.star, '*') + m[1] };
+          return { tpl: T.dash, text: prefixOf(T.dash, '-') + t };
+        });
+        const made = out.map(o => makeParaLike(o.tpl, o.tpl.getAttribute('paraPrIDRef'), charPrOf(o.tpl), o.text));
+        paras.forEach(pp => sub.removeChild(pp));
+        made.forEach(pp => sub.appendChild(pp));
+        return true;
+      }
       if (slot.kind === 'cell') {
         const sub = hpChildren(slot.el, 'subList')[0];
         if (!sub) return false;
@@ -3476,7 +3634,13 @@ ${String(text || '').slice(0, 15000)}`, { responseMimeType: 'application/json' }
         slots = slots.concat(found.slots);
         sections.push({ name, xml });
       }
-      if (!slots.length) throw new Error('양식에서 채울 빈칸이나 □/ㅇ 작성 자리를 찾지 못했습니다.');
+      if (!slots.length) {
+        const head = parsed.map(({ xml }) => hpTextOf(xml.documentElement)).join(' ').slice(0, 600);
+        if (/공고/.test(head) && /(다음과\s*같이|공고합니다|공고\s*제)/.test(head)) {
+          throw new Error('첨부한 파일이 공고문으로 보입니다. 공고에 붙어 있는 제안서(계획서·수요조사서) 양식 파일을 첨부해 주세요.\n(.hwp 양식은 한글에서 HWPX로 저장 후 첨부)');
+        }
+        throw new Error('양식에서 채울 빈칸이나 □/ㅇ 작성 자리를 찾지 못했습니다.');
+      }
       if (slots.length > 600) slots = slots.slice(0, 600);
 
       const headerName = Object.keys(src.files).find(n => /^Contents\/header\.xml$/i.test(n));
@@ -3525,6 +3689,9 @@ ${String(text || '').slice(0, 15000)}`, { responseMimeType: 'application/json' }
 16. '번호 칸'은 번호 뒤에 붙일 항목 이름만, '예시 행 이름 칸'은 실제 지표 이름만 쓸 것.
 17. '상자 아래 칸'(조직도)은 위 상자 이름에 맞는 값(기관명·담당 업무)을 쓸 것. 성명·인원(○○○, ○명)은 지어내지 말 것.
 18. 기관 이름은 [참여기관]의 이름을 그대로 쓰고, 일정표·조직도·기관별 목표·기대효과에 모든 참여기관을 빠짐없이 넣을 것.
+19. '○번째 칸'이 붙은 같은 행의 여러 칸은 나눠 쓸 내용(핵심어 5개 등)이 있을 때만 순서대로 채우고, 아니면 첫 칸만 쓰고 나머지는 키 생략.
+20. '예시 칸'은 예시 문구를 지우고 실제 값만 쓸 것(근거 없으면 키 생략 → 예시가 남으니 사용자가 확인). '선택 표시 칸'은 여러 보기 중 하나만 '○'.
+21. 줄 머리('ㅇ / - / *')가 정해진 긴 칸은 그 기호로 줄을 시작하고, 칸 안의 ※ 작성요령은 옮겨 적지 말 것.
 
 [양식 빈칸 목록]
 ${slots.map(sl => describeSlot(sl, Object.keys(skel).length > 0)).join('\n')}
@@ -3550,7 +3717,11 @@ ${analysisContext(p) || '(없음)'}
       const ctx = { cpInfo, styles, skel };
       slots.forEach(s => {
         const v = map[s.id];
-        if (v === undefined || v === null || !String(v).trim()) return;
+        if (v === undefined || v === null || !String(v).trim()) {
+          if (s.kind === 'mark') clearMark(s.el, false);   // 고르지 않은 선택 표시 칸의 예시 체크 지움
+          if (s.kind === 'check') setBoxes(s.el, new Set());
+          return;
+        }
         if (fillSlot(s, Array.isArray(v) ? v.join('\n') : String(v), ctx)) filled++;
       });
 
