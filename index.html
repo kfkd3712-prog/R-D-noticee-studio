@@ -1,10 +1,20 @@
 <!DOCTYPE html>
 <!--
   R&D Studio Pro — 종합 기획 관리 워크스페이스
-  APP_VERSION: v2.3.1
+  APP_VERSION: v2.5.0
   배포: GitHub 웹에서 이 index.html 파일을 수동 업로드(덮어쓰기)
 
   [CHANGELOG]
+  v2.5.0 (2026-11-20) 기관 기술 프로필: 사이드바 [기관 프로필]에 우리 회사의 공정·소재·제품·고객사·장비·인증·실적·인력·강점을 한 번 저장
+                      → ② 문서 작성·한글 양식 채우기에 근거로 자동 반영(문서별 '기관 프로필 반영' 체크, 기본 켜짐).
+                      프로필은 localStorage rnd_org_profile_v1, Supabase Push/Pull 시 'org_profile' 행으로 함께 백업·복원
+  v2.4.0 (2026-11-18) 양식 채우기 보강(탐색연구계획서 수작업 보정 내용 반영): 표 안에 들어 있는 표(앞표지 등)도 작성 자리로 인식,
+                      [  ] 선택 칸 [○] 표시, 'o 수요처 :' 같은 형식 칸은 줄 형식 유지, 번호만 있는 항목 칸(1. / N.)·예시) 행 이름 칸 작성,
+                      'ㅇ 주관연구개발기관 :' 처럼 콜론으로 끝나는 줄 뒤에 값 작성, 내용 없는 제목 아래 작성 자리 추가,
+                      조직도는 이름 상자 아래 칸에 작성(연결선 칸·일정표 월 막대 칸 제외), 같은 열 빈칸은 행 번호로 구분,
+                      공동연구개발기관 N 묶음(제목+표)을 참여기관 수만큼 복제, 참여기관 목록을 모든 칸에 일관 반영, 맞춤법 자동 보정
+  v2.3.2 (2026-11-18) 양식 채우기 보정(실제 결과물 점검): 표 전체 폭의 빈 줄은 작성 자리에서 제외, 제목 아래 빈 줄 자리도
+                      양식의 □/ㅇ/- 줄 모양·들여쓰기로 작성(13pt 등 간격용 모양 사용 안 함)
   v2.3.1 (2026-11-18) 양식 채우기 개선(실제 탐색연구계획서 기준): □/ㅇ/- 작성 자리 표시 줄을 작성 자리로 인식해 수준별 원본 모양으로 교체,
                       작성 요령·유의사항 안내 상자와 목차 줄은 건드리지 않음, 간격용·안내문(파란 글씨) 모양 대신 양식의 일반 본문/표 글씨 사용
   v2.3.0 (2026-11-18) 양식 채우기: ② 문서에 한글 양식(.hwpx)을 첨부하면 원본을 보관하고, [한글(양식)] 버튼이 원본의 빈칸·※ 작성요령 자리에만
@@ -51,6 +61,8 @@
       --text-muted: #64748b;
       --border-color: #e2e8f0;
       --primary: #2563eb;
+      --profile-dot-on: #22c55e;
+      --profile-dot-empty: #64748b;
       --primary-hover: #1d4ed8;
       --primary-soft: #eff6ff;
       --emerald: #10b981;
@@ -131,6 +143,32 @@
       transition: background 0.15s ease;
     }
     .btn-new-project:hover { background: var(--primary-hover); }
+    .btn-side-secondary {
+      width: 100%;
+      padding: 8px 14px;
+      background: transparent;
+      color: #cbd5e1;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      font-weight: 700;
+      font-size: 12.5px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: background 0.15s ease, color 0.15s ease;
+    }
+    .btn-side-secondary:hover { background: rgba(148, 163, 184, 0.12); color: #fff; }
+    .btn-side-secondary .profile-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--profile-dot-empty); }
+    .btn-side-secondary .profile-dot.on { background: var(--profile-dot-on); }
+    .profile-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+    .profile-grid .full { grid-column: 1 / -1; }
+    .profile-grid textarea { min-height: 58px; resize: vertical; }
+    .profile-check { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; color: var(--text-main, #0f172a); cursor: pointer; }
+    .profile-check input { margin-top: 3px; }
+    .profile-check small { display: block; color: var(--text-muted); font-size: 11px; }
+    @media (max-width: 640px) { .profile-grid { grid-template-columns: 1fr; } }
 
     .filter-tabs {
       display: flex;
@@ -788,6 +826,9 @@
       <button class="btn-new-project" id="btnOpenNewProjectModal">
         <i class="fa-solid fa-folder-plus"></i> 새 과제 생성
       </button>
+      <button class="btn-side-secondary" id="btnOpenProfileModal" title="우리 기관 기술 프로필 — 문서 작성 시 근거로 자동 반영">
+        <i class="fa-solid fa-building"></i> 기관 프로필 <span class="profile-dot" id="profileDot"></span>
+      </button>
     </div>
 
     <!-- Search & Sort -->
@@ -1014,6 +1055,27 @@
     </div>
   </div>
 
+  <!-- ================= MODAL: ORG PROFILE ================= -->
+  <div class="modal-backdrop" id="profileModal">
+    <div class="modal" style="width: 720px; max-width: 94vw;">
+      <div class="modal-header">
+        <h3><i class="fa-solid fa-building" style="color: var(--primary);"></i> 우리 기관 기술 프로필</h3>
+        <button style="border:none; background:none; cursor:pointer; font-size:16px;" id="btnCloseProfileModal">✕</button>
+      </div>
+      <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+        <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px; line-height: 1.6;">
+          한 번 저장하면 ② 문서 작성과 한글 양식 채우기에 <b>사실 근거</b>로 자동 반영됩니다(사업화 능력·보유 장비·실적 칸 등).
+          적은 내용만 쓰고, 적지 않은 수치·실적은 지어내지 않습니다. 확실한 사실만 짧게 적어 주세요.
+        </p>
+        <div class="profile-grid" id="profileFields"></div>
+      </div>
+      <div class="modal-footer" style="justify-content: space-between;">
+        <small style="color: var(--text-muted); font-size: 11px;" id="profileUpdatedAt"></small>
+        <button class="btn btn-primary" id="btnSaveProfile">프로필 저장</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast -->
   <div id="toast"></div>
 
@@ -1228,8 +1290,9 @@
       d.form = Object.assign({ raw: '', fileName: '', guide: '', hasTemplate: false }, d.form || {});
       d.inputs = Object.assign({
         processField: 'forging', targetSpec: '', processGuide: '', consortium: '',
-        targetItem: '', theme: '', direction: '', extra: ''
+        targetItem: '', theme: '', direction: '', extra: '', useProfile: true
       }, d.inputs || {});
+      if (typeof d.inputs.useProfile !== 'boolean') d.inputs.useProfile = true;
       if (!PROCESS_FIELDS[d.inputs.processField]) d.inputs.processField = 'forging';
       if (typeof d.result !== 'string') d.result = d.result ? String(d.result) : '';
       if (!Array.isArray(d.versions)) d.versions = [];
@@ -1333,6 +1396,60 @@
     }
 
     // 저장 데이터 불러오기: v3 → (없으면) v2 변환 → (없으면) 샘플
+    // ---------- 우리 기관 기술 프로필 (v2.5.0) ----------
+    const PROFILE_KEY = 'rnd_org_profile_v1';
+    const ORG_PROFILE_FIELDS = [
+      { key: 'orgName', label: '기관명', ph: '예: ○○단조(주)', short: true },
+      { key: 'orgType', label: '기업 유형', ph: '예: 중견기업 / 중소기업 / 연구기관', short: true },
+      { key: 'processes', label: '주력 공정', ph: '예: 알루미늄 열간 단조, T6 열처리, CNC 가공' },
+      { key: 'materials', label: '주요 소재', ph: '예: 6061·6082 알루미늄 합금, 탄소강' },
+      { key: 'products', label: '대표 제품·부품', ph: '예: 서스펜션 로어암, 너클, 브래킷' },
+      { key: 'customers', label: '주요 고객사·적용처', ph: '예: 국내 완성차 1차 모듈사, 해외 OEM' },
+      { key: 'equipment', label: '보유 장비·설비', ph: '예: 2,500톤 단조 프레스 2대, 연속 열처리로 1식, 3차원 측정기', full: true },
+      { key: 'certifications', label: '인증·품질체계', ph: '예: IATF 16949, ISO 14001, 기업부설연구소' },
+      { key: 'workforce', label: '연구 인력', ph: '예: 연구소 15명(박사 2, 석사 6)' },
+      { key: 'achievements', label: '주요 실적 (과제·특허·납품)', ph: '예: 산업부 ○○ 과제 수행(2022~2024), 특허 등록 3건, ○○ 부품 양산 납품', full: true },
+      { key: 'strengths', label: '기타 강점·사업화 역량', ph: '예: 소재-단조-열처리-가공 일관 생산, 양산 PPAP 승인 경험', full: true }
+    ];
+    function loadOrgProfile() {
+      try {
+        const o = JSON.parse(localStorage.getItem(PROFILE_KEY) || '{}');
+        return (o && typeof o === 'object' && !Array.isArray(o)) ? o : {};
+      } catch (e) { return {}; }
+    }
+    function saveOrgProfile(o) {
+      const clean = {};
+      ORG_PROFILE_FIELDS.forEach(f => { clean[f.key] = String((o && o[f.key]) || '').trim(); });
+      clean.updatedAt = (o && o.updatedAt) || Date.now();
+      localStorage.setItem(PROFILE_KEY, JSON.stringify(clean));
+      updateProfileDot();
+      return clean;
+    }
+    function orgProfileFilled(o) {
+      o = o || loadOrgProfile();
+      return ORG_PROFILE_FIELDS.some(f => String(o[f.key] || '').trim());
+    }
+    function updateProfileDot() {
+      const dot = document.getElementById('profileDot');
+      if (dot) dot.classList.toggle('on', orgProfileFilled());
+    }
+    // 프롬프트에 넣을 프로필 블록 (문서에서 반영을 끄거나 비어 있으면 '')
+    function profileBlock(doc) {
+      if (doc && doc.inputs && doc.inputs.useProfile === false) return '';
+      const o = loadOrgProfile();
+      if (!orgProfileFilled(o)) return '';
+      const lines = ORG_PROFILE_FIELDS
+        .filter(f => String(o[f.key] || '').trim())
+        .map(f => `- ${f.label}: ${String(o[f.key]).trim().replace(/\s*\n\s*/g, ' / ')}`).join('\n');
+      return `
+[우리 기관 프로필 — 연구자가 확인한 사실]
+${lines}
+- 위 프로필은 사실 근거임. 사업화 능력·보유 자원·장비·실적·인력·추진 역량·기대효과 항목의 근거로 우선 사용할 것.
+- 프로필에 없는 수치·실적·장비·고객사는 지어내지 말 것(긴 칸은 '[확인 필요: …]', 짧은 칸은 비워 둘 것).
+- 이 기관이 컨소시엄에서 주관·공동 중 어느 기관인지는 연구자 제공 정보·본문·[참여기관]을 따를 것.
+`;
+    }
+
     function loadData() {
       let loaded = null;
       let migrated = false;
@@ -1563,6 +1680,8 @@
           set(doc.inputs, 'theme', val('demandTheme'));
           set(doc.inputs, 'direction', val('demandDirection'));
           set(doc.inputs, 'extra', val('docExtraInput'));
+          const useProf = document.getElementById('docUseProfile');
+          if (useProf) doc.inputs.useProfile = useProf.checked;
           doc.updatedAt = Date.now();
         }
       }
@@ -1789,6 +1908,17 @@
         <div class="pane-section">
           <h4><i class="fa-solid fa-pen-ruler"></i> 작성 정보</h4>
           ${inputsHtml}
+          <div class="form-group">
+            ${(() => {
+              const prof = loadOrgProfile();
+              const filled = orgProfileFilled(prof);
+              const note = filled
+                ? `저장된 프로필(${escapeHtml(prof.orgName || '기관명 미입력')})을 근거로 씁니다.`
+                : '저장된 프로필이 없습니다 — 사이드바 [기관 프로필]에서 입력하세요.';
+              return `<label class="profile-check"><input type="checkbox" id="docUseProfile" ${doc.inputs.useProfile !== false ? 'checked' : ''}>
+                <span>우리 기관 프로필 반영<small>${note}</small></span></label>`;
+            })()}
+          </div>
           <div class="form-group">
             <label>추가 요청사항 (선택)</label>
             <textarea class="form-control" id="docExtraInput" style="height:70px;" placeholder="예: 주관기관은 CTR 에코포징 기준으로 작성, 3차년도 사업화 계획을 강조">${escapeHtml(doc.inputs.extra)}</textarea>
@@ -2057,7 +2187,7 @@ ${guide || '(별도 유의사항 없음 — 양식 안의 작성요령을 따를
 
 [연구자 제공 정보]
 ${infoLines || '(없음)'}
-${extra ? `\n[연구자 추가 요청]\n${extra}\n` : ''}
+${profileBlock(doc)}${extra ? `\n[연구자 추가 요청]\n${extra}\n` : ''}
 [근거 자료: ${ctxLabel}]
 ${ctx || '(없음)'}
 
@@ -2087,7 +2217,7 @@ ${ctx}
 - 제조 공정 및 가이드: ${i.processGuide}
 - 산학연 컨소시엄 및 수요처: ${i.consortium}
 - 공정 분야: ${field.label}
-${refBlock}${extra ? `\n[연구자 추가 요청]\n${extra}\n` : ''}
+${profileBlock(doc)}${refBlock}${extra ? `\n[연구자 추가 요청]\n${extra}\n` : ''}
 [반드시 포함해야 할 4대 핵심 구조]
 
 1. 정량적 연구개발 목표 및 공인시험 평가 기준 (마크다운 표 형식 필수)
@@ -2119,7 +2249,7 @@ ${refBlock}${extra ? `\n[연구자 추가 요청]\n${extra}\n` : ''}
 대상 조사 항목: ${item ? `${item.label}${item.desc ? ` (${item.desc})` : ''}` : '(지정 없음)'}
 제안 테마: ${i.theme}
 추진 방향성: ${i.direction}
-${ctx ? `
+${profileBlock(doc)}${ctx ? `
 [참조: 기술수요조사 공고 분석 결과]
 ${ctx}
 - 공고의 조사 대상 분야·항목 범위와 제출 요건에 부합하도록 작성할 것.
@@ -2795,6 +2925,8 @@ ${ctx}
             // 머리행은 모든 칸이 짧은 이름이어야 함 (값이 섞인 '이름 | 값' 표는 열 머리 없음)
             const cellTexts = cells.map(tc => hpTextOf(tc).trim());
             if (cells.length < 2 || cellTexts.some(t => !t || t.length > 30)) break;
+            // 문서 제목·[ ] 선택 상자가 든 줄(앞표지 첫 줄 등)은 열 머리가 아님
+            if (cellTexts.some(t => /[\[\]]|(계획서|신청서|보고서|조사서)$/.test(t))) break;
             headerRow = ri;
             cells.forEach(tc => {
               const addr = hpChildren(tc, 'cellAddr')[0];
@@ -2806,51 +2938,118 @@ ${ctx}
             break;
           }
           const firstText = hpTextOf(node).trim().slice(0, 40);
+          // 안내 상자 판별은 이 표의 칸만 봄 (안쪽 표의 작성요령 칸 때문에 바깥 틀 표 전체가 빠지지 않게)
+          const ownCells = rows.flatMap(r => hpChildren(r, 'tc'));
           const instruction = INSTRUCTION_RE.test(firstText) ||
-            Array.from(node.getElementsByTagNameNS('*', 'tc')).some(tc => INSTRUCTION_RE.test(hpTextOf(tc).trim()));
+            ownCells.some(tc => INSTRUCTION_RE.test(hpTextOf(tc).trim()));
+          // 칸 위치 목록 (이름 상자 아래 칸 찾기용)
+          const cellPos = ownCells.map(tc => {
+            const a = hpChildren(tc, 'cellAddr')[0], sp = hpChildren(tc, 'cellSpan')[0];
+            return { r: +(a?.getAttribute('rowAddr') || 0), c: +(a?.getAttribute('colAddr') || 0),
+              rs: +(sp?.getAttribute('rowSpan') || 1), cs: +(sp?.getAttribute('colSpan') || 1), text: hpTextOf(tc).trim() };
+          });
           // 행마다 칸 수가 다르면 '이름 | 값' 양식 표 (열 머리보다 행 이름이 중요)
           const counts = rows.slice(Math.max(0, headerRow + 1)).map(r => hpChildren(r, 'tc').length);
           const irregular = new Set(counts).size > 1;
-          const admin = ADMIN_TABLE_RE.test(heading);
-          tables.set(node, { no: ++tableCounter.n, heading, header, headerRow, rowCount: rows.length, instruction: instruction || admin, irregular });
-          if (prevTop) prevTop.slotted = true;
+          // 별첨(연구실운영비 등)·서명란 표도 사용자가 직접 기재
+          const admin = ADMIN_TABLE_RE.test(heading) || /운영비|별첨|^\s*(연구개발기관|연구책임자)\s*[:：]/.test(firstText);
+          tables.set(node, { no: ++tableCounter.n, heading, header, headerRow, rowCount: rows.length, instruction: instruction || admin, irregular, cellPos, numSeen: 0 });
+          // 작성 요령 상자는 제목 아래 내용으로 치지 않음 (제목만 있는 자리 찾기용)
+          if (prevTop && !instruction) prevTop.slotted = true;
         }
         if (ln === 'tc') {
           const tbl = (() => { for (let n = node.parentNode; n; n = n.parentNode) if (n.localName === 'tbl') return n; return null; })();
-          const info = tables.get(tbl) || { no: 0, heading, header: [], rowCount: 0, instruction: false };
+          const info = tables.get(tbl) || { no: 0, heading, header: [], rowCount: 0, instruction: false, cellPos: [], numSeen: 0 };
           if (info.instruction) return;
-          const nested = node.getElementsByTagNameNS('*', 'tbl').length > 0;
+          // 안에 표가 든 칸(앞표지 틀 등)은 그 안쪽 표를 계속 살핌
+          if (node.getElementsByTagNameNS('*', 'tbl').length > 0) { Array.from(node.childNodes).forEach(visit); return; }
           const text = hpTextOf(node).trim();
           const placeholderOnly = /^[○◦•·ㅇ\-–—\s.]+$/.test(text);
           const sub = hpChildren(node, 'subList')[0];
-          const paraCount = sub ? hpChildren(sub, 'p').filter(pp => hpTextOf(pp).trim()).length : 0;
+          const paraTexts = sub ? hpChildren(sub, 'p').map(pp => hpTextOf(pp).trim()).filter(Boolean) : [];
+          const paraCount = paraTexts.length;
           const guidanceCell = isGuidanceText(text) && paraCount <= 2;
-          if (!nested && (!text || placeholderOnly || guidanceCell)) {
-            const addr = hpChildren(node, 'cellAddr')[0];
-            const r = +(addr?.getAttribute('rowAddr') || 0), c = +(addr?.getAttribute('colAddr') || 0);
-            const tr = node.parentNode;
-            let rowLabel = '';
-            hpChildren(tr, 'tc').forEach(o => {
-              if (o === node) return;
-              const oc = +(hpChildren(o, 'cellAddr')[0]?.getAttribute('colAddr') || 0);
-              const ot = hpTextOf(o).trim();
-              if (oc < c && ot && !isGuidanceText(ot)) rowLabel = ot;
-            });
-            const descriptiveRow = rowLabel.length >= 4 && !/^[\dA-Za-z.()\s-]+$/.test(rowLabel);
-            const colHeader = (r > info.headerRow && !(info.irregular && descriptiveRow)) ? (info.header[c] || '') : '';
-            const width = +(hpChildren(node, 'cellSz')[0]?.getAttribute('width') || 0);
-            const single = info.rowCount === 1 && hpChildren(tr, 'tc').length === 1;
-            const SHORT_LABEL = /(과제명|사업명|기관|성명|책임자|소속|직위|직급|기간|연구비|사업비|금액|예산|전화|연락처|e-?mail|이메일|주소|분야|번호|일자|날짜|인원|인력|구분|건수|단위)/i;
-            const label = rowLabel || colHeader;
-            // 이름 칸·열 머리·안내문이 모두 없는 빈 칸(조직도·도식용 칸)은 작성 자리가 아님
-            if (!single && !guidanceCell && !rowLabel && !colHeader) return;
-            const long = single || guidanceCell || (width > 30000 && !SHORT_LABEL.test(label));
-            push({
-              kind: 'cell', el: node, heading: info.heading, table: info.no,
-              rowLabel: rowLabel.slice(0, 40), colHeader: colHeader.slice(0, 40),
-              guidance: guidanceCell ? text.slice(0, 200) : '', guidanceStyle: guidanceCell, long
-            });
+          // [  ] 선택 칸 (아직 아무것도 표시되지 않은 보기 2개 이상)
+          const boxCount = (text.match(/\[\s*\]/g) || []).length;
+          const checkCell = boxCount >= 2 && !/\[\s*[○O0●◎√✓Vv]\s*\]/.test(text);
+          // 'o 사업화 형태 :', 'o' 처럼 줄 머리만 있는 형식 칸
+          const PROMPT_LINE = /^[o○ㅇ•·\-]\s*([^:：]{1,30}[:：])?\s*$/;
+          const promptCell = !placeholderOnly && paraCount > 0 && paraTexts.every(t => PROMPT_LINE.test(t));
+          // 번호만 있는 항목 칸 (1. / 2. / N.) · 예시) 행 이름 칸
+          const numMatch = text.match(/^(\d+|N)\s*[.)]$/);
+          const exampleCell = /^예시\s*\)/.test(text) && paraCount <= 2;
+          // '기업명(중견기업, … 택1)' 처럼 이름 자리 표시만 있는 칸
+          const namePlaceholder = /^(기업명|과제명)\s*(\(.*\))?$/.test(text.replace(/\s+/g, ' '));
+          if (text && !placeholderOnly && !guidanceCell && !checkCell && !promptCell && !numMatch && !exampleCell && !namePlaceholder) return;
+
+          const addr = hpChildren(node, 'cellAddr')[0];
+          const r = +(addr?.getAttribute('rowAddr') || 0), c = +(addr?.getAttribute('colAddr') || 0);
+          const spanEl = hpChildren(node, 'cellSpan')[0];
+          const colSpanHere = +(spanEl?.getAttribute('colSpan') || 1), rowSpanHere = +(spanEl?.getAttribute('rowSpan') || 1);
+          const tr = node.parentNode;
+          let rowLabel = '', rowLabelEnd = -1;
+          hpChildren(tr, 'tc').forEach(o => {
+            if (o === node) return;
+            const oa = hpChildren(o, 'cellAddr')[0], os = hpChildren(o, 'cellSpan')[0];
+            const oc = +(oa?.getAttribute('colAddr') || 0), ocs = +(os?.getAttribute('colSpan') || 1);
+            const ot = hpTextOf(o).trim();
+            if (oc < c && ot && !isGuidanceText(ot) && !/^\[\s*\]/.test(ot)) { rowLabel = ot; rowLabelEnd = oc + ocs; }
+          });
+          // 바로 위 같은 폭의 이름 상자 (조직도·도식 표)
+          // 위쪽 같은 폭의 이름 상자 (조직도·도식 표, 표 중간의 머리줄) — 사이 칸이 모두 비어 있을 때만
+          let aboveLabel = '';
+          for (let rr = r; rr > 0;) {
+            const q = (info.cellPos || []).find(x => x.c === c && x.cs === colSpanHere && x.r + x.rs === rr);
+            if (!q) break;
+            if (q.text) { if (q.text.length <= 40 && !isGuidanceText(q.text) && !/[\[\]]/.test(q.text)) aboveLabel = q.text; break; }
+            rr = q.r;
           }
+          // 왼쪽 이름이 바로 붙어 있지 않으면(사이에 연결선 칸 등) 위 상자 이름을 우선
+          if (rowLabel && rowLabelEnd !== c && aboveLabel) rowLabel = '';
+          const descriptiveRow = rowLabel.length >= 4 && !/^[\dA-Za-z.()\s-]+$/.test(rowLabel);
+          const colHeader = (r > info.headerRow && !(info.irregular && descriptiveRow)) ? (info.header[c] || '') : '';
+          const width = +(hpChildren(node, 'cellSz')[0]?.getAttribute('width') || 0);
+          const single = info.rowCount === 1 && hpChildren(tr, 'tc').length === 1;
+          const SHORT_LABEL = /(과제명|사업명|기관|성명|책임자|소속|직위|직급|기간|연구비|사업비|금액|예산|전화|연락처|e-?mail|이메일|주소|분야|번호|일자|날짜|인원|인력|구분|건수|단위)/i;
+          const label = rowLabel || colHeader || aboveLabel;
+          const base = { el: node, heading: info.heading, table: info.no, row: r,
+            rowLabel: rowLabel.slice(0, 40), colHeader: colHeader.slice(0, 40), aboveLabel: rowLabel || colHeader ? '' : aboveLabel.slice(0, 40) };
+
+          if (checkCell) {
+            const options = [];
+            text.replace(/([^\[\]]*?)\s*\[\s*\]/g, (m, name) => { options.push(name.replace(/\s+/g, ' ').trim()); return m; });
+            if (options.some(o => !o)) return;   // '[ ] 신청용' 처럼 상자가 앞에 오는 형식은 제외
+            push(Object.assign(base, { kind: 'check', options, label: label.slice(0, 40) }));
+            return;
+          }
+          if (numMatch) {
+            if (!colHeader || /^(순번|번호|No\.?)$/i.test(colHeader)) return;
+            info.numSeen = (info.numSeen || 0) + 1;
+            push(Object.assign(base, { kind: 'cell', numLabel: numMatch[1] === 'N' ? String(info.numSeen) : numMatch[1], numSep: text.includes(')') ? ')' : '.', guidance: '', long: false }));
+            return;
+          }
+          if (exampleCell) {
+            push(Object.assign(base, { kind: 'cell', example: text.slice(0, 60), guidance: '', long: false }));
+            return;
+          }
+          if (namePlaceholder) {
+            push(Object.assign(base, { kind: 'cell', guidance: `자리 표시 '${text.replace(/\s+/g, ' ')}' → 실제 이름으로 (괄호 안 선택지는 고른 것만 괄호로)`, long: false }));
+            return;
+          }
+          if (promptCell) {
+            push(Object.assign(base, { kind: 'cell', prompts: paraTexts, guidance: '', long: true }));
+            return;
+          }
+          // 이름 칸·열 머리·위 상자·안내문이 모두 없는 빈 칸(조직도·도식용 칸)은 작성 자리가 아님
+          if (!single && !guidanceCell && !label) return;
+          // 좁은 연결선 칸, 일정표의 세로로 긴 기간 막대 칸은 작성 자리가 아님
+          if (!single && !guidanceCell && width && width < 4000 && !colHeader) return;
+          if (!single && !guidanceCell && rowSpanHere >= 5 && width && width < 4500) return;
+          // 표 전체 폭을 차지하는 빈 줄(구분용 줄)은 행 이름이 없으면 작성 자리가 아님
+          const tblColCnt = +(tbl?.getAttribute('colCnt') || 1);
+          if (!single && !guidanceCell && !rowLabel && colSpanHere >= tblColCnt) return;
+          const long = single || guidanceCell || (width > 30000 && !SHORT_LABEL.test(label));
+          push(Object.assign(base, { kind: 'cell', guidance: guidanceCell ? text.slice(0, 200) : '', guidanceStyle: guidanceCell, long }));
           return;
         }
         if (ln === 'p' && isTopLevelPara(node)) {
@@ -2891,9 +3090,18 @@ ${ctx}
                   if (pending && lv > pending.level) pending = null;
                   if (pendingGuid && lv > pendingGuid.level) pendingGuid = null;
                   confirmPending(); confirmGuid();
+                  // 내용 없이 바로 같은·상위 제목이 이어지는 제목 → 그 제목 아래에 작성 자리 추가
+                  if (!toc && prevTop && prevTop.isHeading && !prevTop.toc && !prevTop.slotted && prevTop.el &&
+                      !/[:：=+]/.test(prevTop.text) && !ADMIN_TABLE_RE.test(prevTop.text) &&
+                      lv <= headingLevel(prevTop.text) && headingLevel(prevTop.text) <= 5) {
+                    push({ kind: 'after', el: prevTop.el, heading: prevTop.text.slice(0, 80), guidance: '', long: true });
+                  }
                 } else { pending = null; pendingGuid = null; }
+                // 'ㅇ 주관연구개발기관 :' 처럼 콜론으로 끝나는 줄 → 콜론 뒤에 값
+                const colonLine = !isH && /^[\sㅇ○◦•□■\-]*[^:：]{2,30}[:：]\s*$/.test(text) && !/페이지/.test(text);
+                if (colonLine) push({ kind: 'inline', el: node, heading: text.slice(0, 60), guidance: '', long: false });
                 if ((isH && !toc) || (!isH && text.length <= 70)) heading = text.slice(0, 80);
-                prevTop = { text, isHeading: isH, toc, slotted: false };
+                prevTop = { text, isHeading: isH, toc, slotted: colonLine, el: node };
               }
             }
           }
@@ -2907,16 +3115,36 @@ ${ctx}
       return { slots, next: idx };
     }
 
-    function describeSlot(s) {
+    function describeSlot(s, formUsesSkeleton) {
       const where = s.heading ? `[${s.heading}]` : '[문서 앞부분]';
+      // □/ㅇ/- 양식에서는 제목 아래 빈 줄 자리도 같은 기호로 쓰게 함
+      if (s.kind === 'para' && formUsesSkeleton && !s.guidance) s = Object.assign({}, s, { kind: 'block', topLevel: 0 });
+      // 내용 없는 제목 아래 자리: □ 제목이면 ㅇ부터, 그 위 제목이면 □부터
+      let note = '';
+      if (s.kind === 'after') {
+        note = " | 제목만 있고 내용이 없는 자리(신청 단계에서 해당 없으면 '• 해당사항 없음(사유)' 한 줄)";
+        s = Object.assign({}, s, formUsesSkeleton ? { kind: 'block', topLevel: headingLevel(s.heading) >= 5 ? 1 : 0 } : { kind: 'para' });
+      }
       if (s.kind === 'block') {
         const marks = s.topLevel === 0 ? "'□ '(대항목)·'ㅇ '(중항목)·'- '(세부)" : s.topLevel === 1 ? "'ㅇ '(중항목)·'- '(세부)" : "'- '(세부)";
-        return `${s.id} | ${where} 본문 작성 자리 | 긴 칸(각 줄을 ${marks}로 시작)`;
+        return `${s.id} | ${where} 본문 작성 자리 | 긴 칸(각 줄을 ${marks}로 시작)${note}`;
       }
+      if (s.kind === 'inline') return `${s.id} | ['${s.heading}' 줄] 콜론 뒤에 이어 쓸 값 | 짧은 칸(한 줄 값)`;
       let pos;
       if (s.kind === 'para') pos = '본문 작성 자리';
-      else if (s.rowLabel || s.colHeader) pos = `표${s.table} ${s.rowLabel ? `'${s.rowLabel}' 행` : ''}${s.rowLabel && s.colHeader ? ' × ' : ''}${s.colHeader ? `'${s.colHeader}' 열` : ''}`.trim();
-      else pos = `표${s.table} 내용 칸`;
+      else {
+        const lab = s.rowLabel || s.colHeader
+          ? `${s.rowLabel ? `'${s.rowLabel}' 행` : ''}${s.rowLabel && s.colHeader ? ' × ' : ''}${s.colHeader ? `'${s.colHeader}' 열` : ''}`
+          : s.aboveLabel ? `'${s.aboveLabel}' 상자 아래 칸` : '내용 칸';
+        pos = `표${s.table} ${s.row !== undefined ? `${s.row + 1}행 ` : ''}${lab}`;
+      }
+      if (s.kind === 'check') return `${s.id} | ${where} ${pos} 선택 칸 | 보기: ${s.options.join(' / ')} (해당하는 보기 이름만 쉼표로)`;
+      if (s.numLabel) return `${s.id} | ${where} ${pos} '${s.numLabel}${s.numSep}' 번호 칸 | 짧은 칸(번호 뒤에 붙일 항목 이름만)`;
+      if (s.example) return `${s.id} | ${where} ${pos} 예시 행 이름 칸('${s.example}') | 짧은 칸(실제 지표 이름으로 바꿈)`;
+      if (s.prompts) {
+        const fmt = s.prompts.map(t => /[:：]\s*$/.test(t) ? `'${t.trim()} 값'` : `'${t.trim()} 내용'`).join(' / ');
+        return `${s.id} | ${where} ${pos} 형식 칸 | 줄 형식 그대로 ${s.prompts.length}줄: ${fmt}`;
+      }
       return `${s.id} | ${where} ${pos} | ${s.long ? '긴 칸(개조식 여러 줄)' : '짧은 칸(한 줄 값)'}${s.guidance ? ` | 작성요령: ${s.guidance}` : ''}`;
     }
 
@@ -3000,10 +3228,64 @@ ${ctx}
       };
     }
 
+    // 자주 틀리는 표기 자동 보정
+    const TEXT_FIXES = [
+      [/매커니즘/g, '메커니즘'], [/PM\s*프로젝트\s*관리/g, 'PM(프로젝트 관리)'], [/메카니즘/g, '메커니즘'],
+      [/컨소시움/g, '컨소시엄'], [/시뮬레이숀/g, '시뮬레이션'], [/로드멥/g, '로드맵']
+    ];
+    function fixText(s) { return TEXT_FIXES.reduce((acc, [re, to]) => acc.replace(re, to), String(s)); }
+
+    // 본문 문단 모양으로 줄 넣기 (ref 앞에) — □/ㅇ/- 줄은 양식의 같은 수준 줄 모양 사용
+    function insertBodyLines(parent, ref, tplP, lines, ctx, forceBody) {
+      const { cpInfo, styles } = ctx;
+      let pp = tplP.getAttribute('paraPrIDRef'), cp = charPrOf(tplP);
+      if ((forceBody || !isPlainBody(cpInfo[cp], 1000, 1200)) && styles.bodyCharPr) { cp = styles.bodyCharPr; pp = styles.bodyParaPr || pp; }
+      const sk = ctx.skel || {};
+      lines.forEach(l => {
+        const m = l.match(/^\s*([□■ㅇ○◦●•\-–·])\s+(.*)$/);
+        if (m && /[□■ㅇ○◦\-–]/.test(m[1])) {
+          const lv = /[□■]/.test(m[1]) ? 0 : /[ㅇ○◦]/.test(m[1]) ? 1 : 2;
+          const t = sk[lv] || sk[lv + 1] || sk[lv - 1];
+          if (t) { parent.insertBefore(makeParaLike(tplP, t.paraPr, t.cp, t.prefix + m[2]), ref); return; }
+        }
+        parent.insertBefore(makeParaLike(tplP, pp, cp, l.trim()), ref);
+      });
+    }
+
     function fillSlot(slot, value, ctx) {
-      const lines = slotLines(value);
+      const lines = slotLines(fixText(value));
       if (!lines.length) return false;
       const { cpInfo, styles } = ctx;
+
+      // [  ] 선택 칸: 고른 보기의 상자만 [○]로 (상자 순서대로 바꿈)
+      if (slot.kind === 'check') {
+        const norm = (x) => String(x).replace(/[\s·ㆍ]/g, '').toLowerCase();
+        const picks = lines.join(',').split(/[,，/\n]/).map(norm).filter(Boolean);
+        const chosen = new Set();
+        slot.options.forEach((o, i) => { const k = norm(o); if (picks.some(pk => pk === k || (pk.length >= 2 && (k.includes(pk) || pk.includes(k))))) chosen.add(i); });
+        if (!chosen.size) return false;
+        let k = -1;
+        Array.from(slot.el.getElementsByTagNameNS('*', 't')).forEach(t => {
+          t.textContent = t.textContent.replace(/\[\s*\]/g, m => { k++; return chosen.has(k) ? '[○]' : m; });
+        });
+        return true;
+      }
+
+      // 콜론으로 끝나는 줄: 마지막 글자 뒤에 값 붙이기
+      if (slot.kind === 'inline') {
+        const ts = Array.from(slot.el.getElementsByTagNameNS('*', 't'));
+        const last = ts.filter(t => t.textContent.trim()).pop();
+        if (!last) return false;
+        last.textContent = last.textContent.replace(/\s*$/, ' ') + lines[0].trim();
+        return true;
+      }
+
+      // 내용 없는 제목 바로 아래에 본문 넣기
+      if (slot.kind === 'after') {
+        const h = slot.el;
+        insertBodyLines(h.parentNode, h.nextSibling, h, lines, ctx, true);
+        return true;
+      }
 
       if (slot.kind === 'block') {
         // 수준별 본보기 줄(□/ㅇ/-)의 모양과 들여쓰기를 그대로 사용
@@ -3042,8 +3324,26 @@ ${ctx}
         // 안내문 칸(파란 글씨 등)이었으면 양식의 일반 표 글씨로
         const ci = cpInfo[cp];
         if (slot.guidanceStyle || (ci && ci.color !== '#000000')) cp = styles.cellCharPr || cp;
+        let out = lines;
+        // 번호 칸: '1. 항목 이름' (N.은 순서 번호로)
+        if (slot.numLabel) out = [`${slot.numLabel}${slot.numSep} ${lines[0].replace(/^\s*(\d+|N)\s*[.)]\s*/, '').trim()}`];
+        // 형식 칸: 줄마다 원래 줄 머리('o 수요처 :') 유지
+        if (slot.prompts) {
+          const heads = slot.prompts.map(t => t.trim());
+          const mark = (heads[0].match(/^[o○ㅇ•·\-]/) || ['o'])[0];
+          out = lines.map((l, i) => {
+            const s = l.trim();
+            if (/^[o○ㅇ•·\-]\s/.test(s)) return s;
+            const h = heads[i];
+            if (h && /[:：]$/.test(h)) return s.startsWith(h.replace(/^[o○ㅇ•·\-]\s*/, '').replace(/\s*[:：]$/, '')) ? `${mark} ${s}` : `${h} ${s}`;
+            return `${mark} ${s}`;
+          });
+        }
         paras.forEach(pp => sub.removeChild(pp));
-        lines.forEach(l => sub.appendChild(makeParaLike(tpl, tpl.getAttribute('paraPrIDRef'), cp, l)));
+        out.forEach((l, i) => {
+          const t = slot.prompts ? (paras[Math.min(i, paras.length - 1)] || tpl) : tpl;
+          sub.appendChild(makeParaLike(t, t.getAttribute('paraPrIDRef'), slot.prompts ? (charPrOf(t) || cp) : cp, l));
+        });
         return true;
       }
 
@@ -3051,10 +3351,88 @@ ${ctx}
       const p = slot.el;
       const parent = p.parentNode;
       let pp = p.getAttribute('paraPrIDRef'), cp = charPrOf(p);
-      if (!isPlainBody(cpInfo[cp], 1000, 1300) && styles.bodyCharPr) { cp = styles.bodyCharPr; pp = styles.bodyParaPr || pp; }
-      lines.forEach(l => parent.insertBefore(makeParaLike(p, pp, cp, l), p));
+      if (!isPlainBody(cpInfo[cp], 1000, 1200) && styles.bodyCharPr) { cp = styles.bodyCharPr; pp = styles.bodyParaPr || pp; }
+      //   □/ㅇ/- 로 시작하는 줄은 양식의 같은 수준 줄 모양·들여쓰기를 그대로 사용
+      const sk = ctx.skel || {};
+      lines.forEach(l => {
+        const m = l.match(/^\s*([□■ㅇ○◦●•\-–·])\s+(.*)$/);
+        if (m) {
+          const lv = /[□■]/.test(m[1]) ? 0 : /[ㅇ○◦●•]/.test(m[1]) ? 1 : 2;
+          const t = sk[lv] || sk[lv + 1] || sk[lv - 1];
+          if (t) { parent.insertBefore(makeParaLike(p, t.paraPr, t.cp, t.prefix + m[2]), p); return; }
+        }
+        parent.insertBefore(makeParaLike(p, pp, cp, l.trim()), p);
+      });
       parent.removeChild(p);
       return true;
+    }
+
+    // 본문에서 참여기관 이름 뽑기 (주관 1곳 + 공동 순서대로) — 실패해도 양식 채우기는 계속
+    async function getConsortiumOrgs(apiKey, text) {
+      try {
+        const res = await callGemini(apiKey, `아래 문서에서 주관연구개발기관 1곳과 공동연구개발기관 이름을 문서에 나온 순서대로 뽑아라.
+기관 이름만(괄호 속 역할·'(주관)'·'(공동1)' 같은 표기는 빼고) JSON 하나로 출력: {"main":"기관명","co":["기관명","기관명"]}
+문서에 없으면 {"main":"","co":[]}. 지어내지 말 것.
+
+[문서]
+${String(text || '').slice(0, 15000)}`, { responseMimeType: 'application/json' });
+        const o = res && parseJsonLoose(res.text);
+        if (!o || typeof o !== 'object') return null;
+        const clean = (x) => String(x || '').replace(/\s*\((주관|공동\s*\d*)\)\s*/g, '').trim().slice(0, 40);
+        const co = (Array.isArray(o.co) ? o.co : []).map(clean).filter(Boolean).slice(0, 9);
+        const main = clean(o.main);
+        return (main || co.length) ? { main, co } : null;
+      } catch (e) {
+        if (e && e.fatal) throw e;
+        return null;
+      }
+    }
+
+    // 'ㅇ 공동연구개발기관1 :' + 표 묶음을 공동기관 수만큼 복제하고 'ㅇ 공동연구개발기관N :' 자리를 대신함.
+    // 'ㅇ 주관연구개발기관 :' / 'ㅇ 공동연구개발기관k :' 줄에는 기관명을 바로 넣음
+    function expandCoOrgBlocks(parsed, orgs) {
+      const co = orgs.co || [];
+      const NO1 = /(공동[가-힣\s]{0,8}기관\s*)1(?!\d)/g;
+      const retitle = (el, k) => Array.from(el.getElementsByTagNameNS('*', 't')).forEach(t => { t.textContent = t.textContent.replace(NO1, `$1${k}`); });
+      parsed.forEach(({ xml }) => {
+        const tops = () => Array.from(xml.getElementsByTagNameNS('*', 'p')).filter(isTopLevelPara);
+        const nPara = tops().find(pp => /^[\sㅇ○◦•\-]*공동\s*연구\s*개발\s*기관\s*N\s*[:：]\s*$/.test(hpTextOf(pp).trim()));
+        const head1 = tops().find(pp => /^[\sㅇ○◦•\-]*공동\s*연구\s*개발\s*기관\s*1\s*[:：]\s*$/.test(hpTextOf(pp).trim()));
+        if (nPara && head1 && head1.parentNode === nPara.parentNode && co.length) {
+          const group = [];
+          for (let n = head1.nextSibling; n && n !== nPara; n = n.nextSibling) if (n.nodeType === 1) group.push(n);
+          while (group.length && !group[group.length - 1].getElementsByTagNameNS('*', 'tbl').length && !hpTextOf(group[group.length - 1]).trim()) group.pop();
+          if (group.length && group.length <= 6) {
+            const parent = nPara.parentNode;
+            for (let k = 2; k <= co.length; k++) {
+              [head1, ...group].forEach(g => {
+                const c = g.cloneNode(true);
+                retitle(c, k);
+                Array.from(c.getElementsByTagNameNS('*', 'tbl')).forEach(tb => tb.setAttribute('id', String(1000000000 + Math.floor(Math.random() * 900000000))));
+                parent.insertBefore(c, nPara);
+              });
+            }
+            parent.removeChild(nPara);
+          }
+        }
+        // 기관명 줄 채우기
+        tops().forEach(pp => {
+          const t = hpTextOf(pp).trim();
+          let name = '';
+          if (/^[\sㅇ○◦•\-]*주관\s*연구\s*개발\s*기관\s*[:：]$/.test(t)) name = orgs.main;
+          const m = t.match(/^[\sㅇ○◦•\-]*공동\s*연구\s*개발\s*기관\s*(\d+)\s*[:：]$/);
+          if (m) name = co[+m[1] - 1] || '';
+          if (!name) return;
+          const last = Array.from(pp.getElementsByTagNameNS('*', 't')).filter(x => x.textContent.trim()).pop();
+          if (last) last.textContent = last.textContent.replace(/\s*$/, ' ') + name;
+        });
+        // 조직도 등에 남은 '공동연구개발기관N' 표기 → 실제 번호 (공동기관이 3곳 이상일 때)
+        if (co.length >= 3) {
+          Array.from(xml.getElementsByTagNameNS('*', 't')).forEach(t => {
+            if (/공동\s*연구\s*개발\s*기관\s*N/.test(t.textContent)) t.textContent = t.textContent.replace(/(공동\s*연구\s*개발\s*기관\s*)N/g, `$1${co.length === 3 ? '3' : `3~${co.length}`}`);
+          });
+        }
+      });
     }
 
     // 양식 원본 + AI 매핑 → 채워진 .hwpx Blob
@@ -3076,6 +3454,15 @@ ${ctx}
         if (xml.getElementsByTagName('parsererror').length) throw new Error(`양식 구역(${name})을 읽지 못했습니다.`);
         parsed.push({ name, xml });
       }
+      // 참여기관 목록 (주관·공동) → 'ㅇ 공동연구개발기관N :' 묶음 복제, 기관명 줄 채우기, 모든 칸에 같은 이름 사용
+      const info = KIND_INFO[p.kind];
+      const i = doc.inputs;
+      let orgs = null;
+      const formText = parsed.map(({ xml }) => hpTextOf(xml.documentElement)).join('\n');
+      if (/연구개발기관/.test(formText) && String(doc.result || i.consortium || '').trim()) {
+        orgs = await getConsortiumOrgs(apiKey, `${i.consortium || ''}\n${doc.result || ''}`);
+        if (orgs) expandCoOrgBlocks(parsed, orgs);
+      }
       // 제목별 등장 횟수 (목차 줄 판별용)
       const headingLeft = new Map();
       parsed.forEach(({ xml }) => Array.from(xml.getElementsByTagNameNS('*', 'p')).forEach(pp => {
@@ -3095,9 +3482,19 @@ ${ctx}
       const headerName = Object.keys(src.files).find(n => /^Contents\/header\.xml$/i.test(n));
       const cpInfo = headerName ? readCharPrInfo(parser.parseFromString(await src.files[headerName].async('text'), 'text/xml')) : {};
       const styles = findBodyStyles(sections, cpInfo);
+      // 양식 전체에서 □/ㅇ/- 줄 본보기(수준별 첫 번째) 모으기 — 빈 줄 자리도 같은 모양으로 쓰기 위함
+      const skel = {};
+      sections.forEach(({ xml }) => Array.from(xml.getElementsByTagNameNS('*', 'p')).forEach(pp => {
+        if (!isTopLevelPara(pp)) return;
+        const t = hpTextOf(pp);
+        const lv = skeletonLevel(t);
+        if (lv < 0 || skel[lv]) return;
+        const m = t.match(/^(\s*[□■ㅇ○◦●•\-–·]\s*)/);
+        const c = charPrOf(pp);
+        if (!(isPlainBody(cpInfo[c], 900, 1400) || cpInfo[c]?.bold)) return;
+        skel[lv] = { paraPr: pp.getAttribute('paraPrIDRef'), cp: c, prefix: (m ? m[1] : '').replace(/\s*$/, ' ') };
+      }));
 
-      const info = KIND_INFO[p.kind];
-      const i = doc.inputs;
       const item = parseDemandItems(i.targetItem)[0];
       const facts = [
         [info.itemLabel, item ? `${item.label}${item.desc ? ` (${item.desc})` : ''}` : ''],
@@ -3119,10 +3516,22 @@ ${ctx}
 7. 각 자리의 작성요령(분량·형식·필수 내용)을 지키고, 작성요령 문구 자체는 옮겨 적지 말 것.
 8. 같은 내용을 여러 자리에 반복하지 말고, 각 자리의 제목([ ] 안)에 맞는 내용만 쓸 것.
 9. 쓸 내용이 없거나 비워 두는 것이 맞는 자리(서명란, 날짜 기재란, 담당자 확인란 등)는 키를 생략할 것.
+10. 같은 표의 같은 열 빈칸이 여러 행(일정표·목록 표)이면 행 번호마다 서로 다른 내용으로 빠짐없이 채울 것. 여러 행을 묶는 칸(개발항목 등)에는 단계 이름과 기간(예: '① 기술 타당성 분석 (1~3개월)')을 쓸 것.
+11. 과제명 칸에는 사업명·'(탐색연구)' 같은 머리말 없이 과제명만 쓸 것.
+12. 보고서·전략서 같은 기획 성과물이라 세계최고·국내 수준 비교가 의미 없는 칸은 '해당없음', 아직 정하지 않는 이후 연차 목표 칸은 '본과제 계획 시 설정'으로 쓸 것. 이런 칸에 '[확인 필요]'를 쓰지 말 것.
+13. 논문·특허 건수 칸은 본문에 계획이 없으면 '0건'으로 쓸 것. 고용 인원은 근거가 없으면 키 생략.
+14. '선택 칸'은 보기 중 본문 근거가 있는 보기 이름만 쉼표로 적을 것(없으면 키 생략).
+15. '형식 칸'은 적힌 줄 형식(예: 'o 수요처 : 값')과 줄 수를 그대로 지켜 각 줄의 값을 채울 것. 한 칸에 다른 칸 내용을 몰아 쓰지 말 것.
+16. '번호 칸'은 번호 뒤에 붙일 항목 이름만, '예시 행 이름 칸'은 실제 지표 이름만 쓸 것.
+17. '상자 아래 칸'(조직도)은 위 상자 이름에 맞는 값(기관명·담당 업무)을 쓸 것. 성명·인원(○○○, ○명)은 지어내지 말 것.
+18. 기관 이름은 [참여기관]의 이름을 그대로 쓰고, 일정표·조직도·기관별 목표·기대효과에 모든 참여기관을 빠짐없이 넣을 것.
 
 [양식 빈칸 목록]
-${slots.map(describeSlot).join('\n')}
+${slots.map(sl => describeSlot(sl, Object.keys(skel).length > 0)).join('\n')}
 
+[참여기관]
+${orgs && (orgs.main || (orgs.co || []).length) ? [orgs.main ? `- 주관연구개발기관: ${orgs.main}` : '', ...(orgs.co || []).map((c, k) => `- 공동연구개발기관${k + 1}: ${c}`)].filter(Boolean).join('\n') : '(본문에서 확인)'}
+${profileBlock(doc)}
 [작성된 본문]
 ${(doc.result || '(아직 없음 — 근거 자료와 연구자 정보로 작성)').slice(0, 20000)}
 
@@ -3138,7 +3547,7 @@ ${analysisContext(p) || '(없음)'}
       if (!map || typeof map !== 'object') throw new Error('AI 응답을 칸별 내용으로 해석하지 못했습니다. 다시 시도해주세요.');
 
       let filled = 0;
-      const ctx = { cpInfo, styles };
+      const ctx = { cpInfo, styles, skel };
       slots.forEach(s => {
         const v = map[s.id];
         if (v === undefined || v === null || !String(v).trim()) return;
@@ -3564,6 +3973,34 @@ ${analysisContext(p) || '(없음)'}
         showToast('설정 및 클라우드 연동 정보가 저장되었습니다.');
       };
 
+      // 기관 프로필 모달
+      const profileModal = document.getElementById('profileModal');
+      document.getElementById('btnOpenProfileModal').onclick = () => {
+        const prof = loadOrgProfile();
+        document.getElementById('profileFields').innerHTML = ORG_PROFILE_FIELDS.map(f => `
+          <div class="form-group ${f.full ? 'full' : ''}" style="margin-bottom:0;">
+            <label for="prof_${f.key}">${escapeHtml(f.label)}</label>
+            ${f.short
+              ? `<input type="text" class="form-control" id="prof_${f.key}" placeholder="${escapeHtml(f.ph)}" value="${escapeHtml(prof[f.key] || '')}">`
+              : `<textarea class="form-control" id="prof_${f.key}" placeholder="${escapeHtml(f.ph)}">${escapeHtml(prof[f.key] || '')}</textarea>`}
+          </div>`).join('');
+        document.getElementById('profileUpdatedAt').textContent = prof.updatedAt
+          ? `마지막 저장: ${new Date(prof.updatedAt).toLocaleString('ko-KR')}` : '아직 저장된 프로필이 없습니다.';
+        profileModal.classList.add('show');
+      };
+      document.getElementById('btnCloseProfileModal').onclick = () => profileModal.classList.remove('show');
+      document.getElementById('btnSaveProfile').onclick = () => {
+        const o = { updatedAt: Date.now() };
+        ORG_PROFILE_FIELDS.forEach(f => { o[f.key] = document.getElementById(`prof_${f.key}`).value; });
+        saveOrgProfile(o);
+        profileModal.classList.remove('show');
+        // 열려 있는 ② 화면의 반영 안내 문구 갱신
+        const p = curProject();
+        if (p && getStage(p) === 'docs') { flushPendingInputSave(); renderInputPane(p); }
+        showToast(orgProfileFilled() ? '기관 프로필을 저장했습니다. ② 문서 작성에 근거로 반영됩니다.' : '기관 프로필을 비웠습니다.');
+      };
+      updateProfileDot();
+
 
       // Header Delete Project button
       document.getElementById('btnDeleteCurrentProject').onclick = () => {
@@ -3626,8 +4063,18 @@ ${analysisContext(p) || '(없음)'}
             body: JSON.stringify(payload)
           });
 
+          // 기관 프로필도 별도 행으로 백업 (있을 때만)
+          let profNote = '';
+          if (res.ok && orgProfileFilled()) {
+            const r2 = await fetch(`${url.replace(/\/$/, '')}/rest/v1/${table}`, {
+              method: 'POST',
+              headers: { 'apikey': key, 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json', 'Prefer': 'resolution=merge-duplicates' },
+              body: JSON.stringify({ id: 'org_profile', data: loadOrgProfile(), updated_at: new Date().toISOString() })
+            }).catch(() => null);
+            profNote = r2 && r2.ok ? ' (기관 프로필 포함)' : ' (기관 프로필 백업은 실패)';
+          }
           if (res.ok) {
-            showToast('✅ Supabase에 백업이 안전하게 완료되었습니다.');
+            showToast('✅ Supabase에 백업이 안전하게 완료되었습니다.' + profNote);
           } else {
             const err = await res.json().catch(() => ({}));
             alert('Push 실패: ' + (err.message || res.statusText));
@@ -3662,7 +4109,8 @@ ${analysisContext(p) || '(없음)'}
               const ok = window.confirm(
                 `클라우드 백업으로 현재 브라우저의 과제 목록을 덮어씁니다.\n\n` +
                 `• 클라우드 백업: ${cloudData.length}건 (저장 시각: ${cloudTime})\n` +
-                `• 현재 브라우저: ${projects.length}건\n\n` +
+                `• 현재 브라우저: ${projects.length}건\n` +
+                `• 기관 프로필: 클라우드에 있으면 함께 불러옵니다\n\n` +
                 `덮어쓰기 전 현재 데이터는 JSON 파일로 자동 다운로드됩니다. 계속하시겠습니까?`
               );
               if (!ok) return;
@@ -3686,9 +4134,24 @@ ${analysisContext(p) || '(없음)'}
               saveData();
               currentProjectId = projects[0].id;
               resetOutputState();
+              // 기관 프로필 행이 있으면 함께 복원
+              let profNote = '';
+              try {
+                const r2 = await fetch(`${url.replace(/\/$/, '')}/rest/v1/${table}?id=eq.org_profile&select=*`, {
+                  headers: { 'apikey': key, 'Authorization': `Bearer ${key}` }
+                });
+                const l2 = r2.ok ? await r2.json() : [];
+                const d2 = l2 && l2[0] && l2[0].data;
+                if (d2 && typeof d2 === 'object' && !Array.isArray(d2)) {
+                  const prevProf = localStorage.getItem(PROFILE_KEY);
+                  if (prevProf) { try { localStorage.setItem('rnd_org_profile_backup_before_pull', prevProf); } catch (e) {} }
+                  saveOrgProfile(d2);
+                  profNote = ' 기관 프로필도 불러왔습니다.';
+                }
+              } catch (e) {}
               renderProjectList();
               loadProjectWorkspace();
-              showToast('✅ 클라우드에서 불러왔습니다. (이전 로컬 데이터는 JSON으로 백업됨)');
+              showToast('✅ 클라우드에서 불러왔습니다. (이전 로컬 데이터는 JSON으로 백업됨)' + profNote);
             } else {
               alert('불러올 백업 데이터가 존재하지 않습니다.');
             }
